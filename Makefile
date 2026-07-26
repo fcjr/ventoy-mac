@@ -1,0 +1,65 @@
+V2D_VERSION := 0.1.0
+SIGN_IDENTITY := Developer ID Application: Left Shift Logical, LLC (KNBPD99JQM)
+BUNDLE_ID := com.leftshift.ventoy
+
+CC := cc
+CFLAGS := -O2 -Wall -std=c11 -DV2D_VERSION=\"$(V2D_VERSION)\" \
+          -DFATFS_INC_FORMAT_SUPPORT=0 \
+          -Isrc -Ivendor/ff14/source -Ivendor/fat_io_lib -Ivendor/xz
+ARCHS := -arch arm64 -arch x86_64
+
+BUILD := build
+BIN := $(BUILD)/ventoy2disk
+
+SRCS := \
+    src/main.c \
+    src/install.c \
+    src/disk_macos.c \
+    src/partition.c \
+    src/format.c \
+    src/ff_diskio.c \
+    src/secureboot.c \
+    src/fatpart.c \
+    src/payload.c \
+    src/xzdec.c \
+    src/crc32.c \
+    vendor/ff14/source/ff.c \
+    vendor/ff14/source/ffsystem.c \
+    vendor/ff14/source/ffunicode.c \
+    vendor/fat_io_lib/fat_access.c \
+    vendor/fat_io_lib/fat_cache.c \
+    vendor/fat_io_lib/fat_filelib.c \
+    vendor/fat_io_lib/fat_misc.c \
+    vendor/fat_io_lib/fat_string.c \
+    vendor/fat_io_lib/fat_table.c \
+    vendor/fat_io_lib/fat_write.c \
+    vendor/xz/xz_crc32.c \
+    vendor/xz/xz_dec_lzma2.c \
+    vendor/xz/xz_dec_stream.c
+
+OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
+
+all: $(BIN) sign
+
+HDRS := $(wildcard src/*.h vendor/ff14/source/*.h vendor/fat_io_lib/*.h vendor/xz/*.h)
+
+$(BUILD)/%.o: %.c $(HDRS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $(ARCHS) -c $< -o $@
+
+$(BIN): $(OBJS)
+	$(CC) $(ARCHS) $(OBJS) -o $@
+
+sign: $(BIN)
+	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_IDENTITY)"; then \
+	    codesign --force --options runtime --timestamp \
+	        --identifier $(BUNDLE_ID) --sign "$(SIGN_IDENTITY)" $(BIN); \
+	    echo "signed $(BIN) as $(BUNDLE_ID)"; \
+	else \
+	    echo "signing identity not found; leaving $(BIN) unsigned"; \
+	fi
+
+clean:
+	rm -rf $(BUILD)
+
+.PHONY: all sign clean
