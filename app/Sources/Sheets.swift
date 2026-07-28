@@ -85,7 +85,6 @@ struct ProgressSheet: View {
     let disk: DiskInfo?
     let actionTitle: String
     let onDone: () -> Void
-    @State private var detailsOpen = false
 
     private var phase: InstallPhase {
         InstallPhase.parse(runner.log, running: runner.running)
@@ -113,29 +112,14 @@ struct ProgressSheet: View {
                 Spacer()
             }
 
-            if runner.running {
-                ProgressView()
-                    .progressViewStyle(.linear)
-            }
+            ProgressView()
+                .progressViewStyle(.linear)
+                .opacity(runner.running ? 1 : 0)
 
-            if let d = disk, runner.running {
+            if let d = disk {
                 PartitionBar(regions: afterRegions(d, InstallOptions()),
-                             activeID: phase.activeRegion)
+                             activeID: runner.running ? phase.activeRegion : nil)
             }
-
-            Button {
-                withAnimation(.easeOut(duration: 0.2)) { detailsOpen.toggle() }
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(detailsOpen ? 90 : 0))
-                    Text(detailsOpen ? "Hide Details" : "Show Details")
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Raw output from the ventoy2disk installer")
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -153,10 +137,8 @@ struct ProgressSheet: View {
                     proxy.scrollTo("logEnd", anchor: .bottom)
                 }
             }
-            .frame(height: detailsOpen ? 150 : 0)
-            .clipped()
-            .opacity(detailsOpen ? 1 : 0)
-            .accessibilityHidden(!detailsOpen)
+            .frame(height: 170)
+            .help("Raw output from the ventoy2disk installer")
 
             HStack {
                 Spacer()
@@ -168,11 +150,6 @@ struct ProgressSheet: View {
         .padding(20)
         .frame(width: 460)
         .interactiveDismissDisabled(runner.running)
-        .onChange(of: runner.lastSucceeded) { ok in
-            if ok == false {
-                withAnimation(.easeOut(duration: 0.2)) { detailsOpen = true }
-            }
-        }
     }
 
     @ViewBuilder
