@@ -1,7 +1,7 @@
 # ventoy-mac
 
-A native macOS CLI to install [Ventoy](https://www.ventoy.net) on a USB drive
-— a port of the official `Ventoy2Disk` installer.
+A native macOS CLI and GUI to install [Ventoy](https://www.ventoy.net) on a
+USB drive — a port of the official `Ventoy2Disk` installer.
 
 Ventoy makes a USB drive that boots ISO files directly: install it once, then
 just copy ISOs onto the drive. The resulting drive boots PCs (BIOS and UEFI);
@@ -39,14 +39,28 @@ from GitHub on first use and cached under
 `~/Library/Caches/com.leftshift.ventoy/`. Use `--pack` to point at an
 already-extracted package instead (offline use).
 
+## GUI
+
+```sh
+make app
+open build/Ventoy2Disk.app
+```
+
+A SwiftUI app (macOS 13+) with a device picker, MBR/GPT and secure-boot
+options, install/update buttons with double confirmation, and a live log.
+It embeds the CLI and runs it with administrator privileges via the native
+authorization prompt, so no `sudo` is needed.
+
 ## Build
 
 ```sh
-make
+make        # CLI only
+make app    # CLI + Ventoy2Disk.app
 ```
 
 Produces a universal (arm64 + x86_64) `build/ventoy2disk`, codesigned as
-`com.leftshift.ventoy` when the signing identity is available.
+`com.leftshift.ventoy` when the signing identity is available (the app is
+signed as `com.leftshift.ventoy.app`).
 
 ## Design notes
 

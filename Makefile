@@ -39,6 +39,10 @@ SRCS := \
 
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(SRCS))
 
+APP := $(BUILD)/Ventoy2Disk.app
+APP_ID := com.leftshift.ventoy.app
+SWIFT_SRCS := $(wildcard app/Sources/*.swift)
+
 all: $(BIN) sign
 
 HDRS := $(wildcard src/*.h vendor/ff14/source/*.h vendor/fat_io_lib/*.h vendor/xz/*.h)
@@ -59,7 +63,23 @@ sign: $(BIN)
 	    echo "signing identity not found; leaving $(BIN) unsigned"; \
 	fi
 
+app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist
+	rm -rf $(APP)
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
+	swiftc -O -parse-as-library -target arm64-apple-macos13.0 $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
+	swiftc -O -parse-as-library -target x86_64-apple-macos13.0 $(SWIFT_SRCS) -o $(BUILD)/gui-x86_64
+	lipo -create -output $(APP)/Contents/MacOS/Ventoy2Disk $(BUILD)/gui-arm64 $(BUILD)/gui-x86_64
+	sed 's/@VERSION@/$(V2D_VERSION)/g' app/Info.plist > $(APP)/Contents/Info.plist
+	cp $(BIN) $(APP)/Contents/Resources/ventoy2disk
+	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_IDENTITY)"; then \
+	    codesign --force --options runtime --timestamp \
+	        --identifier $(APP_ID) --sign "$(SIGN_IDENTITY)" $(APP); \
+	    echo "signed $(APP) as $(APP_ID)"; \
+	else \
+	    echo "signing identity not found; leaving $(APP) unsigned"; \
+	fi
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all sign clean
+.PHONY: all sign app clean
