@@ -10,6 +10,8 @@ I daily drive a mac, and occationaly I need to reformat my daily driver usb driv
 to have to pull out my linux or windows box to reformat my drive to Ventoy once I'm done.  I hope this is
 useful to you too!
 
+Many thanks to [longpanda](https://github.com/ventoy) for their amazing software.
+
 <p align="center">
   <img src="docs/main.png" alt="Ventoy2Disk showing an external drive and its Ventoy partition layout" width="760">
 </p>
