@@ -1,4 +1,4 @@
-V2D_VERSION := 0.1.0
+V2D_VERSION := 0.1.1
 SIGN_IDENTITY := Developer ID Application: Left Shift Logical, LLC (KNBPD99JQM)
 BUNDLE_ID := com.leftshift.ventoy
 
