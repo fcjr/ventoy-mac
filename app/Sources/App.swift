@@ -47,7 +47,7 @@ struct ContentView: View {
     private var selected: DiskInfo? { disks.first { $0.id == selectedID } }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             sidebar
         } detail: {
             if let d = selected {
@@ -65,7 +65,7 @@ struct ContentView: View {
             refresh()
             Task { latest = await DiskLister.latestReleaseTag() }
         }
-        .onChange(of: runner.running) { running in
+        .onChange(of: runner.running) { _, running in
             if !running { refresh() }
         }
         .sheet(isPresented: $showInstallSheet) {
@@ -110,6 +110,7 @@ struct ContentView: View {
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 170, ideal: 200)
+        .toolbar(removing: .sidebarToggle)
     }
 
     @ToolbarContentBuilder

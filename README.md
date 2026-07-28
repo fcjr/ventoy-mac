@@ -46,7 +46,7 @@ make app
 open build/Ventoy2Disk.app
 ```
 
-A SwiftUI app (macOS 13+) in the Disk Utility style: external disks in a
+A SwiftUI app (macOS 14+) in the Disk Utility style: external disks in a
 sidebar, a partition map and info pane per disk, install options in an
 erase sheet, and progress with a details console. It embeds the CLI and
 runs it through Authorization Services, so the password prompt is

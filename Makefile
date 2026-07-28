@@ -66,8 +66,8 @@ sign: $(BIN)
 app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	swiftc -O -parse-as-library -target arm64-apple-macos13.0 $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
-	swiftc -O -parse-as-library -target x86_64-apple-macos13.0 $(SWIFT_SRCS) -o $(BUILD)/gui-x86_64
+	swiftc -O -parse-as-library -target arm64-apple-macos14.0 $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
+	swiftc -O -parse-as-library -target x86_64-apple-macos14.0 $(SWIFT_SRCS) -o $(BUILD)/gui-x86_64
 	lipo -create -output $(APP)/Contents/MacOS/Ventoy2Disk $(BUILD)/gui-arm64 $(BUILD)/gui-x86_64
 	sed 's/@VERSION@/$(V2D_VERSION)/g' app/Info.plist > $(APP)/Contents/Info.plist
 	cp $(BIN) $(APP)/Contents/Resources/ventoy2disk

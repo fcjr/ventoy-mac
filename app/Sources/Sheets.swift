@@ -133,7 +133,7 @@ struct ProgressSheet: View {
                 .background(Color(nsColor: .textBackgroundColor))
                 .overlay(RoundedRectangle(cornerRadius: 5)
                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
-                .onChange(of: runner.log) { _ in
+                .onChange(of: runner.log) {
                     proxy.scrollTo("logEnd", anchor: .bottom)
                 }
             }
