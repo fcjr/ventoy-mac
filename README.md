@@ -6,7 +6,7 @@ This is a native macOS port of the official `Ventoy2Disk` ventoy installer cli &
 This allows you to carry a single usb drive and use it for your files as well as the occasional OS
 install.
 
-I daily drive a mac, and occationaly I need to reformat my daily driver usb drive, it's always frustrating
+I daily drive a mac, and occationaly I need to reformat my daily driver usb drive.  It's always frustrating
 to have to pull out my linux or windows box to reformat my drive to Ventoy once I'm done.  I hope this is
 useful to you too!
 
