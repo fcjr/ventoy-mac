@@ -107,9 +107,18 @@ jobs:
           git commit -m "Update appcast for ${version}"
           git push origin main
 
+      - name: Generate tap token
+        id: tap-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          owner: fcjr
+          repositories: homebrew-fcjr
+
       - name: Publish the Homebrew casks
         env:
-          TAP_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+          TAP_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
