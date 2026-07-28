@@ -1,5 +1,5 @@
 build/
 *.dmg
 .DS_Store
-sparkle-ed25519-key.txt
+sparkle-*key*.txt
 .claude/
