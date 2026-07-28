@@ -123,22 +123,40 @@ struct ProgressSheet: View {
                              activeID: phase.activeRegion)
             }
 
-            DisclosureGroup("Show Details", isExpanded: $detailsOpen) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        Text(runner.log.isEmpty ? " " : runner.log)
-                            .font(.caption.monospaced())
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .id("logEnd")
-                    }
-                    .frame(height: 150)
-                    .onChange(of: runner.log) { _ in
-                        proxy.scrollTo("logEnd", anchor: .bottom)
-                    }
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { detailsOpen.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(detailsOpen ? 90 : 0))
+                    Text(detailsOpen ? "Hide Details" : "Show Details")
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Raw output from the ventoy2disk installer")
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    Text(runner.log.isEmpty ? " " : runner.log)
+                        .font(.caption.monospaced())
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(6)
+                        .id("logEnd")
+                }
+                .background(Color(nsColor: .textBackgroundColor))
+                .overlay(RoundedRectangle(cornerRadius: 5)
+                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
+                .onChange(of: runner.log) { _ in
+                    proxy.scrollTo("logEnd", anchor: .bottom)
                 }
             }
-            .font(.callout)
+            .frame(height: detailsOpen ? 150 : 0)
+            .clipped()
+            .opacity(detailsOpen ? 1 : 0)
+            .accessibilityHidden(!detailsOpen)
 
             HStack {
                 Spacer()
@@ -151,7 +169,9 @@ struct ProgressSheet: View {
         .frame(width: 460)
         .interactiveDismissDisabled(runner.running)
         .onChange(of: runner.lastSucceeded) { ok in
-            if ok == false { detailsOpen = true }
+            if ok == false {
+                withAnimation(.easeOut(duration: 0.2)) { detailsOpen = true }
+            }
         }
     }
 
