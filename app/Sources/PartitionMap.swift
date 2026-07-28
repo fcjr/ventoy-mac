@@ -1,13 +1,9 @@
 import SwiftUI
 
 enum InstallPhase {
-    case idle, clearing, formatting, writingEFI, writingBoot, writingTable, syncing, done, failed
+    case idle, clearing, formatting, writingEFI, writingBoot, writingTable, syncing
 
     static func parse(_ log: String, running: Bool) -> InstallPhase {
-        if log.contains("=== FAILED") { return .failed }
-        if log.contains("successfully finished") || log.contains("=== Done") {
-            return running ? .syncing : .done
-        }
         let markers: [(String, InstallPhase)] = [
             ("Clearing old partition data", .clearing),
             ("Formatting partition 1", .formatting),
@@ -34,7 +30,7 @@ enum InstallPhase {
         case .writingBoot: return "Writing boot image…"
         case .writingTable: return "Writing partition table…"
         case .syncing: return "Syncing…"
-        default: return nil
+        case .idle: return nil
         }
     }
 
@@ -44,13 +40,26 @@ enum InstallPhase {
         case .formatting: return "data"
         case .writingEFI: return "efi"
         case .writingBoot: return "boot"
-        default: return nil
+        case .idle: return nil
         }
     }
 }
 
 enum RegionKind {
     case boot, data, efi, reserved, existing
+
+    var fill: Color {
+        switch self {
+        case .boot: return Color(nsColor: .systemOrange).opacity(0.5)
+        case .data: return Color(nsColor: .controlAccentColor)
+        case .efi: return Color(nsColor: .systemOrange)
+        case .reserved, .existing: return Color(nsColor: .quaternaryLabelColor)
+        }
+    }
+
+    var hatched: Bool {
+        self == .reserved || self == .existing
+    }
 }
 
 struct MapRegion: Identifiable {
@@ -84,7 +93,7 @@ struct PartitionBar: View {
                 }
             }
         }
-        .frame(height: 28)
+        .frame(height: 22)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
@@ -95,46 +104,36 @@ struct PartitionBar: View {
 
     private func segment(_ r: MapRegion, width: CGFloat) -> some View {
         let active = activeID == r.id || activeID == "all"
-        return RoundedRectangle(cornerRadius: 3)
-            .fill(fill(r.kind))
+        return RoundedRectangle(cornerRadius: 4)
+            .fill(r.kind.fill)
             .overlay {
-                if r.kind == .existing || r.kind == .reserved {
-                    Hatch(color: Theme.dim.opacity(0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                if r.kind.hatched {
+                    Hatch(color: Color(nsColor: .tertiaryLabelColor))
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
             .overlay {
                 if r.kind == .existing, width > 70 {
                     Text(r.label)
-                        .font(Theme.mono(10))
-                        .foregroundStyle(Theme.dim)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                         .padding(.horizontal, 6)
-                        .background(Capsule().fill(Theme.bezel.opacity(0.85)))
+                        .background(Capsule().fill(Color(nsColor: .windowBackgroundColor).opacity(0.9)))
                         .lineLimit(1)
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 3)
-                    .stroke(active ? Theme.phosphor : .clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(active ? Color(nsColor: .controlAccentColor) : .clear, lineWidth: 1.5)
             }
             .opacity(activeBrightness(active))
-            .saturation(faded ? 0.5 : 1)
+            .saturation(faded ? 0.6 : 1)
     }
 
     private func activeBrightness(_ active: Bool) -> Double {
-        guard active else { return faded ? 0.55 : 1 }
+        guard active else { return faded ? 0.7 : 1 }
         if reduceMotion { return 1 }
         return pulse ? 0.55 : 1
-    }
-
-    private func fill(_ kind: RegionKind) -> Color {
-        switch kind {
-        case .boot: return Theme.phosphor.opacity(0.45)
-        case .data: return Theme.steel
-        case .efi: return Theme.phosphor
-        case .reserved: return Theme.well
-        case .existing: return Theme.hairline
-        }
     }
 }
 
@@ -153,25 +152,18 @@ struct Hatch: View {
 }
 
 struct LegendItem: View {
-    let color: Color
-    let hatched: Bool
+    let kind: RegionKind
     let text: String
 
-    init(_ color: Color, hatched: Bool = false, _ text: String) {
-        self.color = color
-        self.hatched = hatched
-        self.text = text
-    }
-
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(color)
-                .overlay { if hatched { Hatch(color: Theme.dim.opacity(0.6)) } }
-                .frame(width: 10, height: 10)
+                .fill(kind.fill)
+                .overlay { if kind.hatched { Hatch(color: Color(nsColor: .tertiaryLabelColor)) } }
+                .frame(width: 9, height: 9)
             Text(text)
-                .font(Theme.mono(10))
-                .foregroundStyle(Theme.dim)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 }

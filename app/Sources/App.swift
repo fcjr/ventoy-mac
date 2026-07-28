@@ -3,11 +3,10 @@ import SwiftUI
 @main
 struct VentoyApp: App {
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("Ventoy2Disk") {
             ContentView()
         }
-        .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 680, height: 560)
+        .defaultSize(width: 560, height: 620)
     }
 }
 
@@ -33,20 +32,12 @@ struct ContentView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            header
-            devicePanel
-            optionsRow
-            actionRow
-            console
+        VStack(spacing: 0) {
+            form
+            Divider()
+            bottomBar
         }
-        .padding(20)
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .frame(minWidth: 620, minHeight: 560)
-        .background(Theme.bezel.ignoresSafeArea())
-        .tint(Theme.phosphor)
-        .preferredColorScheme(.dark)
+        .frame(minWidth: 540, minHeight: 500)
         .onAppear {
             refresh()
             Task { latest = await DiskLister.latestReleaseTag() }
@@ -62,153 +53,167 @@ struct ContentView: View {
         }
         .alert("Are you absolutely sure?", isPresented: $confirmErase2) {
             Button("Cancel", role: .cancel) {}
-            Button("Erase and install", role: .destructive) { runInstall() }
+            Button("Erase and Install", role: .destructive) { runInstall() }
         } message: {
             Text("\(selected?.devPath ?? "") will be wiped and Ventoy will be installed (\(useGPT ? "GPT" : "MBR")).")
         }
     }
 
-    // MARK: header
-
-    private var header: some View {
-        HStack(alignment: .firstTextBaseline) {
-            HStack(spacing: 8) {
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(Theme.phosphor)
-                    .frame(width: 8, height: 14)
-                Text("VENTOY2DISK")
-                    .font(Theme.mono(12, .semibold))
-                    .tracking(2.5)
-                    .foregroundStyle(Theme.ink)
-            }
-            Spacer()
-            Text(latest.map { "latest release \($0)" } ?? "checking latest release…")
-                .font(Theme.mono(11))
-                .foregroundStyle(Theme.dim)
-                .help("Latest Ventoy release on GitHub. Installs download this version automatically.")
-        }
-        .padding(.leading, 58)
-        .padding(.top, 2)
-    }
-
-    // MARK: device + layout
-
-    private var devicePanel: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Eyebrow(text: "DEVICE")
-                Spacer()
-                Picker("", selection: $selectedID) {
-                    if disks.isEmpty {
-                        Text("No external disks").tag(String?.none)
+    private var form: some View {
+        Form {
+            Section("Device") {
+                HStack {
+                    Picker("Disk", selection: $selectedID) {
+                        if disks.isEmpty {
+                            Text("No external disks").tag(String?.none)
+                        }
+                        ForEach(disks) { d in
+                            Text("\(d.mediaName) (\(d.sizeString)) — \(d.id)").tag(Optional(d.id))
+                        }
                     }
-                    ForEach(disks) { d in
-                        Text("\(d.id) — \(d.mediaName)").tag(Optional(d.id))
+                    .disabled(runner.running)
+                    .help("The external disk to install Ventoy on")
+                    Button {
+                        refresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
                     }
+                    .disabled(runner.running)
+                    .help("Rescan external disks")
                 }
-                .labelsHidden()
-                .frame(maxWidth: 240)
-                .disabled(runner.running)
-                .help("Choose the external disk to install Ventoy on")
-                Button {
-                    refresh()
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                if let d = selected {
+                    LabeledContent("Ventoy") {
+                        Text(d.ventoyInstalled
+                             ? "\(d.ventoyVersion ?? "Installed") (\(d.scheme ?? "?"))"
+                             : "Not installed")
+                            .foregroundStyle(d.ventoyInstalled ? .primary : .secondary)
+                    }
+                    .help(d.ventoyInstalled
+                          ? "This disk already has the Ventoy layout. Update keeps the files on the data partition."
+                          : "No Ventoy layout detected on this disk.")
+                    LabeledContent("Now") {
+                        PartitionBar(regions: nowRegions(d), faded: true)
+                            .frame(maxWidth: .infinity)
+                            .help("Current layout — everything here is erased by an install.")
+                    }
+                    LabeledContent("After") {
+                        PartitionBar(regions: afterRegions(d),
+                                     activeID: runner.running ? phase.activeRegion : nil)
+                            .frame(maxWidth: .infinity)
+                            .help("Layout written by the installer. Small regions are drawn wider than scale.")
+                    }
+                    HStack(spacing: 12) {
+                        ForEach(legend(d), id: \.text) { item in
+                            LegendItem(kind: item.kind, text: item.text)
+                        }
+                        Spacer()
+                        Text("\(d.sectorCount.formatted()) sectors")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("Insert a USB drive, then rescan.")
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Theme.dim)
-                .disabled(runner.running)
-                .help("Rescan external disks")
+                LabeledContent("Latest release", value: latest ?? "…")
+                    .help("Latest Ventoy release on GitHub. Installs download this version automatically.")
             }
 
-            if let d = selected {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(d.mediaName)
-                        .font(.system(size: 19, weight: .semibold))
-                        .foregroundStyle(Theme.ink)
-                    HStack(spacing: 0) {
-                        Text("\(d.devPath) · \(d.sizeString) · \(d.scheme ?? "no partition table")")
-                            .font(Theme.mono(12))
-                            .foregroundStyle(Theme.dim)
-                        if d.ventoyInstalled {
-                            Text(" · Ventoy \(d.ventoyVersion ?? "installed")")
-                                .font(Theme.mono(12))
-                                .foregroundStyle(Theme.phosphor)
-                                .help("This disk already has the Ventoy layout. Update keeps the files on the data partition.")
+            Section("Options") {
+                Picker("Partition style", selection: $useGPT) {
+                    Text("MBR").tag(false)
+                    Text("GPT").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .help("MBR boots the widest range of machines; GPT is required for disks over 2 TB.")
+                Toggle("Secure boot support", isOn: $secureBoot)
+                    .help("Keep the shim chain so the drive boots with Secure Boot enabled. Turn off only if a machine rejects the shim.")
+                TextField("Volume label", text: $label)
+                    .help("Volume label for the exFAT data partition")
+                TextField("Reserved space (MB)", text: $reserveMB)
+                    .help("Leave unpartitioned space at the end of the disk, before the VTOYEFI partition")
+            }
+            .disabled(runner.running)
+
+            Section {
+                DisclosureGroup("Console", isExpanded: $consoleOpen) {
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            Text(runner.log.isEmpty ? "Idle." : runner.log)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .id("logEnd")
+                        }
+                        .frame(height: 160)
+                        .onChange(of: runner.log) { _ in
+                            proxy.scrollTo("logEnd", anchor: .bottom)
                         }
                     }
                 }
-                layoutMap(d)
-            } else {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No external disks")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(Theme.ink)
-                    Text("Insert a USB drive, then rescan.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.dim)
-                }
-                .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+                .help("Raw output from the ventoy2disk installer")
             }
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.panel))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.hairline, lineWidth: 1))
+        .formStyle(.grouped)
     }
 
-    private func layoutMap(_ d: DiskInfo) -> some View {
-        let after = afterRegions(d)
-        return VStack(alignment: .leading, spacing: 6) {
-            Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 6) {
-                GridRow {
-                    Eyebrow(text: "NOW")
-                    PartitionBar(regions: nowRegions(d), faded: true)
-                        .help(d.ventoyInstalled
-                              ? "Current layout: this disk already carries Ventoy."
-                              : "Current layout — everything here is erased by an install.")
-                }
-                GridRow {
-                    Eyebrow(text: "AFTER")
-                    PartitionBar(regions: after, activeID: runner.running ? phase.activeRegion : nil)
-                        .help("Layout written by the installer. Small regions are drawn wider than scale.")
-                }
+    private var bottomBar: some View {
+        HStack(spacing: 12) {
+            status
+            Spacer()
+            Button("Update Ventoy") {
+                runUpdate()
             }
-            HStack(spacing: 14) {
-                Text("sector 0")
-                    .font(Theme.mono(9))
-                    .foregroundStyle(Theme.dim)
-                Spacer()
-                ForEach(legend(d)) { item in
-                    LegendItem(item.color, hatched: item.hatched, item.text)
-                }
-                Spacer()
-                Text("\(d.sectorCount.formatted()) sectors")
-                    .font(Theme.mono(9))
-                    .foregroundStyle(Theme.dim)
+            .disabled(runner.running || selected?.ventoyInstalled != true)
+            .help("Updates the boot files in place. Files on the data partition are untouched.")
+            Button(selected?.ventoyInstalled == true ? "Reinstall Ventoy…" : "Install Ventoy…") {
+                confirmErase = true
             }
-            .padding(.leading, 44)
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(runner.running || selected == nil)
+            .help("Erases the whole disk and installs Ventoy. Asks twice before touching anything.")
         }
-        .padding(.top, 4)
+        .padding(12)
     }
 
-    private struct LegendSpec: Identifiable {
-        let id: String
-        let color: Color
-        let hatched: Bool
+    @ViewBuilder
+    private var status: some View {
+        if runner.running {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+                Text(phase.label ?? "Waiting for authorization…")
+                    .foregroundStyle(.secondary)
+            }
+        } else if runner.canceled {
+            Text("Canceled.")
+                .foregroundStyle(.secondary)
+        } else if runner.lastSucceeded == true {
+            Label("Done — copy ISO files to '\(label.trimmingCharacters(in: .whitespaces).isEmpty ? "Ventoy" : label)'",
+                  systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        } else if runner.lastSucceeded == false {
+            Label("Failed — see console", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+        }
+    }
+
+    private struct LegendSpec {
+        let kind: RegionKind
         let text: String
     }
 
     private func legend(_ d: DiskInfo) -> [LegendSpec] {
         var items = [
-            LegendSpec(id: "boot", color: Theme.phosphor.opacity(0.45), hatched: false, text: "grub"),
-            LegendSpec(id: "data", color: Theme.steel, hatched: false,
-                       text: "exFAT \(dataSizeString(d))"),
+            LegendSpec(kind: .boot, text: "grub"),
+            LegendSpec(kind: .data, text: "exFAT \(dataSizeString(d))"),
         ]
         if reserveBytes > 0 {
-            items.append(LegendSpec(id: "rsv", color: Theme.well, hatched: true,
+            items.append(LegendSpec(kind: .reserved,
                                     text: "reserved \(reserveMB.trimmingCharacters(in: .whitespaces)) MB"))
         }
-        items.append(LegendSpec(id: "efi", color: Theme.phosphor, hatched: false, text: "VTOYEFI 32 MB"))
+        items.append(LegendSpec(kind: .efi, text: "VTOYEFI 32 MB"))
         return items
     }
 
@@ -232,153 +237,17 @@ struct ContentView: View {
 
     private func afterRegions(_ d: DiskInfo) -> [MapRegion] {
         var regions = [
-            MapRegion(id: "boot", label: "grub", kind: .boot, size: 1_048_576, fixedWidth: 10),
+            MapRegion(id: "boot", label: "grub", kind: .boot, size: 1_048_576, fixedWidth: 8),
             MapRegion(id: "data", label: "exFAT", kind: .data, size: max(d.size, 1)),
         ]
         if reserveBytes > 0 {
             regions.append(MapRegion(id: "rsv", label: "reserved", kind: .reserved,
-                                     size: reserveBytes, fixedWidth: 24))
+                                     size: reserveBytes, fixedWidth: 20))
         }
         regions.append(MapRegion(id: "efi", label: "VTOYEFI", kind: .efi,
-                                 size: 33_554_432, fixedWidth: 44))
+                                 size: 33_554_432, fixedWidth: 36))
         return regions
     }
-
-    // MARK: options
-
-    private var optionsRow: some View {
-        HStack(spacing: 18) {
-            Picker("", selection: $useGPT) {
-                Text("MBR").tag(false)
-                Text("GPT").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 130)
-            .help("Partition table style. MBR boots the widest range of machines; GPT is required for disks over 2 TB.")
-
-            Toggle("Secure boot", isOn: $secureBoot)
-                .toggleStyle(.checkbox)
-                .foregroundStyle(Theme.ink)
-                .help("Keep the shim chain so the drive boots with Secure Boot enabled. Turn off only if a machine rejects the shim.")
-
-            HStack(spacing: 6) {
-                Text("Label")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
-                TextField("Ventoy", text: $label)
-                    .modifier(FieldStyle())
-                    .frame(width: 110)
-                    .help("Volume label for the exFAT data partition")
-            }
-
-            HStack(spacing: 6) {
-                Text("Reserve")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
-                TextField("0", text: $reserveMB)
-                    .modifier(FieldStyle())
-                    .frame(width: 64)
-                Text("MB")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Theme.dim)
-            }
-            .help("Leave unpartitioned space at the end of the disk, before the VTOYEFI partition")
-
-            Spacer()
-        }
-        .disabled(runner.running)
-    }
-
-    // MARK: actions
-
-    private var actionRow: some View {
-        HStack(spacing: 10) {
-            Button(selected?.ventoyInstalled == true ? "Erase and reinstall Ventoy" : "Erase and install Ventoy") {
-                confirmErase = true
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(runner.running || selected == nil)
-            .help("Erases the whole disk and installs Ventoy. Asks twice before touching anything.")
-
-            Button("Update Ventoy") {
-                runUpdate()
-            }
-            .buttonStyle(QuietButtonStyle())
-            .disabled(runner.running || selected?.ventoyInstalled != true)
-            .help("Updates the boot files in place. Files on the data partition are untouched.")
-
-            statusText
-            Spacer()
-        }
-    }
-
-    @ViewBuilder
-    private var statusText: some View {
-        if runner.running {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(phase.label ?? "Waiting for authorization…")
-                    .font(Theme.mono(12))
-                    .foregroundStyle(Theme.phosphor)
-            }
-            .padding(.leading, 6)
-        } else if runner.lastSucceeded == true {
-            Text("Done — copy ISO files to the '\(label.isEmpty ? "Ventoy" : label)' volume.")
-                .font(Theme.mono(12))
-                .foregroundStyle(Theme.ok)
-                .padding(.leading, 6)
-        } else if runner.lastSucceeded == false {
-            Text(phase == .failed ? "Failed — see console." : "Canceled.")
-                .font(Theme.mono(12))
-                .foregroundStyle(phase == .failed ? Theme.danger : Theme.dim)
-                .padding(.leading, 6)
-        }
-    }
-
-    // MARK: console
-
-    private var console: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button {
-                withAnimation(.easeOut(duration: 0.15)) { consoleOpen.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(consoleOpen ? 90 : 0))
-                    Eyebrow(text: "CONSOLE")
-                }
-                .foregroundStyle(Theme.dim)
-            }
-            .buttonStyle(.plain)
-            .help("Raw output from the ventoy2disk installer")
-
-            if consoleOpen {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        Text(runner.log.isEmpty ? "Idle." : runner.log)
-                            .font(Theme.mono(11))
-                            .foregroundStyle(Theme.phosphor.opacity(0.85))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(8)
-                            .id("logEnd")
-                    }
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well))
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(Theme.hairline, lineWidth: 1))
-                    .onChange(of: runner.log) { _ in
-                        proxy.scrollTo("logEnd", anchor: .bottom)
-                    }
-                }
-                .frame(minHeight: 110, maxHeight: .infinity)
-            }
-        }
-        .frame(maxHeight: consoleOpen ? .infinity : nil, alignment: .top)
-    }
-
-    // MARK: actions
 
     private func refresh() {
         Task {

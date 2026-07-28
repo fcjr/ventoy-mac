@@ -1,14 +1,76 @@
 import Foundation
+import Security
+
+enum PrivilegedOutcome {
+    case completed
+    case canceled
+    case failed(String)
+}
+
+enum PrivilegedRunner {
+    private typealias AEWP = @convention(c) (
+        AuthorizationRef,
+        UnsafePointer<CChar>,
+        AuthorizationFlags,
+        UnsafePointer<UnsafeMutablePointer<CChar>?>,
+        UnsafeMutablePointer<UnsafeMutablePointer<FILE>?>?
+    ) -> OSStatus
+
+    static func run(shellCommand: String, onOutput: @escaping (String) -> Void) -> PrivilegedOutcome {
+        var authRef: AuthorizationRef?
+        guard AuthorizationCreate(nil, nil, [], &authRef) == errAuthorizationSuccess,
+              let auth = authRef else {
+            return .failed("Could not create an authorization reference.")
+        }
+        defer { AuthorizationFree(auth, [.destroyRights]) }
+
+        let rightName = strdup(kAuthorizationRightExecute)!
+        defer { free(rightName) }
+        var item = AuthorizationItem(name: UnsafePointer(rightName),
+                                     valueLength: 0, value: nil, flags: 0)
+        let status = withUnsafeMutablePointer(to: &item) { itemPtr -> OSStatus in
+            var rights = AuthorizationRights(count: 1, items: itemPtr)
+            return AuthorizationCopyRights(auth, &rights, nil,
+                                           [.interactionAllowed, .extendRights, .preAuthorize],
+                                           nil)
+        }
+        if status == errAuthorizationCanceled { return .canceled }
+        guard status == errAuthorizationSuccess else {
+            return .failed("Authorization failed (status \(status)).")
+        }
+
+        guard let sym = dlsym(dlopen(nil, RTLD_NOW), "AuthorizationExecuteWithPrivileges") else {
+            return .failed("AuthorizationExecuteWithPrivileges is unavailable on this system.")
+        }
+        let exec = unsafeBitCast(sym, to: AEWP.self)
+
+        var argv: [UnsafeMutablePointer<CChar>?] = [strdup("-c"), strdup(shellCommand), nil]
+        defer { argv.compactMap { $0 }.forEach { free($0) } }
+        var fp: UnsafeMutablePointer<FILE>?
+        let rc = "/bin/sh".withCString { sh in
+            exec(auth, sh, [], &argv, &fp)
+        }
+        guard rc == errAuthorizationSuccess, let pipe = fp else {
+            return .failed("Failed to launch the privileged process (status \(rc)).")
+        }
+        var buf = [CChar](repeating: 0, count: 4096)
+        while fgets(&buf, Int32(buf.count), pipe) != nil {
+            onOutput(String(cString: buf))
+        }
+        fclose(pipe)
+        return .completed
+    }
+}
 
 @MainActor
 final class Runner: ObservableObject {
     @Published var log = ""
     @Published var running = false
+    @Published var canceled = false
     @Published var lastSucceeded: Bool?
 
-    private var timer: Timer?
-    private var logPath = ""
-    private var offset: UInt64 = 0
+    private static let exitSentinel = "__V2D_EXIT__"
+    private var raw = ""
 
     func run(arguments: [String]) {
         guard !running else { return }
@@ -18,87 +80,53 @@ final class Runner: ObservableObject {
             return
         }
         running = true
+        canceled = false
         lastSucceeded = nil
+        raw = ""
         log = "$ ventoy2disk " + arguments.joined(separator: " ") + "\n"
-        offset = 0
-        logPath = NSTemporaryDirectory() + "ventoy2disk-\(getpid())-\(UInt64(Date().timeIntervalSince1970)).log"
-        FileManager.default.createFile(atPath: logPath, contents: nil)
 
         let cmd = ([cli] + arguments).map(shellQuote).joined(separator: " ")
-            + " >> " + shellQuote(logPath) + " 2>&1"
-        let script = "do shell script \"\(appleScriptEscape(cmd))\" with administrator privileges"
-
-        startPolling()
-        Task.detached {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            p.arguments = ["-e", script]
-            let errPipe = Pipe()
-            p.standardOutput = FileHandle.nullDevice
-            p.standardError = errPipe
-            var ok = false
-            var message: String?
-            do {
-                try p.run()
-                p.waitUntilExit()
-                ok = p.terminationStatus == 0
-                if !ok {
-                    let d = errPipe.fileHandleForReading.readDataToEndOfFile()
-                    message = String(decoding: d, as: UTF8.self)
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-            } catch {
-                message = error.localizedDescription
+            + " 2>&1; echo \"\(Self.exitSentinel):$?\""
+        Task.detached(priority: .userInitiated) {
+            let outcome = PrivilegedRunner.run(shellCommand: cmd) { chunk in
+                Task { @MainActor in self.append(chunk) }
             }
-            let result = (ok, message)
-            await MainActor.run { self.finish(ok: result.0, errorMessage: result.1) }
+            await MainActor.run { self.finish(outcome) }
         }
     }
 
-    private func finish(ok: Bool, errorMessage: String?) {
-        timer?.invalidate()
-        timer = nil
-        pollOnce()
-        if !ok {
-            if let msg = errorMessage, msg.contains("-128") {
-                log += "\nCanceled.\n"
-            } else {
-                if let msg = errorMessage, !msg.isEmpty {
-                    log += "\n" + msg + "\n"
-                }
-                log += "\n=== FAILED ===\n"
-            }
+    private func append(_ chunk: String) {
+        raw += chunk
+        if chunk.contains(Self.exitSentinel) {
+            log = log.split(separator: "\n", omittingEmptySubsequences: false)
+                .filter { !$0.contains(Self.exitSentinel) }
+                .joined(separator: "\n")
         } else {
-            log += "\n=== Done ===\n"
+            log += chunk
         }
-        lastSucceeded = ok
+    }
+
+    private func finish(_ outcome: PrivilegedOutcome) {
         running = false
-        try? FileManager.default.removeItem(atPath: logPath)
-    }
-
-    private func startPolling() {
-        timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.pollOnce() }
+        switch outcome {
+        case .canceled:
+            canceled = true
+            log += "\nCanceled.\n"
+        case .failed(let message):
+            lastSucceeded = false
+            log += "\n" + message + "\n"
+        case .completed:
+            if let r = raw.range(of: Self.exitSentinel + ":") {
+                let code = Int(raw[r.upperBound...].prefix { $0.isNumber }) ?? -1
+                lastSucceeded = (code == 0)
+            } else {
+                lastSucceeded = false
+                log += "\nThe installer exited unexpectedly.\n"
+            }
         }
-    }
-
-    private func pollOnce() {
-        guard let fh = FileHandle(forReadingAtPath: logPath) else { return }
-        defer { try? fh.close() }
-        guard (try? fh.seek(toOffset: offset)) != nil,
-              let data = try? fh.readToEnd(), !data.isEmpty else {
-            return
-        }
-        offset += UInt64(data.count)
-        log += String(decoding: data, as: UTF8.self)
     }
 }
 
 private func shellQuote(_ s: String) -> String {
     "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
-}
-
-private func appleScriptEscape(_ s: String) -> String {
-    s.replacingOccurrences(of: "\\", with: "\\\\")
-        .replacingOccurrences(of: "\"", with: "\\\"")
 }
