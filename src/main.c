@@ -37,6 +37,9 @@ int main(int argc, char **argv)
     int i;
     vt_opts opts;
 
+    /* Keep stdout ordered with stderr when piped (GUI console). */
+    setvbuf(stdout, NULL, _IOLBF, 0);
+
     memset(&opts, 0, sizeof(opts));
     opts.secure_boot = true;
     opts.label = "Ventoy";

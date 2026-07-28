@@ -128,6 +128,7 @@ typedef struct vt_disk
 int vt_disk_open(const char *arg, vt_disk *disk, bool write);
 void vt_disk_close(vt_disk *disk);
 int vt_disk_unmount(const vt_disk *disk);
+int vt_disk_reopen_write(vt_disk *disk);
 int vt_disk_is_system_disk(const vt_disk *disk);
 int vt_pread(const vt_disk *disk, void *buf, uint64_t len, uint64_t offset);
 int vt_pwrite(const vt_disk *disk, const void *buf, uint64_t len, uint64_t offset);

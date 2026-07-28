@@ -123,7 +123,11 @@ static int write_part2_img(const vt_disk *disk, vt_pack *pack,
 
 static int common_open_checks(const vt_opts *opts, vt_disk *disk, bool write)
 {
-    if (vt_disk_open(opts->disk_arg, disk, write))
+    /* Always open read-only here: a mounted disk can't be opened for write
+       (EBUSY), and all the pre-confirmation inspection only needs reads.
+       The write handle is taken by vt_disk_reopen_write() after the user
+       has confirmed and the volumes are unmounted. */
+    if (vt_disk_open(opts->disk_arg, disk, false))
     {
         return 1;
     }
@@ -230,9 +234,8 @@ int vt_install(const vt_opts *opts)
         }
     }
 
-    if (vt_disk_unmount(&disk))
+    if (vt_disk_reopen_write(&disk))
     {
-        fprintf(stderr, "Failed to unmount %s. Close any programs using it and retry.\n", disk.dev);
         goto out;
     }
 
@@ -384,9 +387,8 @@ int vt_update(const vt_opts *opts)
         }
     }
 
-    if (vt_disk_unmount(&disk))
+    if (vt_disk_reopen_write(&disk))
     {
-        fprintf(stderr, "Failed to unmount %s. Close any programs using it and retry.\n", disk.dev);
         goto out;
     }
 

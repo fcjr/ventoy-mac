@@ -120,6 +120,36 @@ void vt_disk_close(vt_disk *disk)
     }
 }
 
+/* Unmount the disk's volumes and reopen the raw device read-write.
+   The kernel can hold the device briefly after unmount, so retry EBUSY. */
+int vt_disk_reopen_write(vt_disk *disk)
+{
+    int i;
+
+    vt_disk_close(disk);
+    vt_disk_unmount(disk);
+
+    for (i = 0; i < 10; i++)
+    {
+        disk->fd = open(disk->rdev, O_RDWR);
+        if (disk->fd >= 0)
+        {
+            return 0;
+        }
+        if (errno != EBUSY)
+        {
+            break;
+        }
+        usleep(300 * 1000);
+        vt_disk_unmount(disk);
+    }
+
+    fprintf(stderr, "Failed to open %s for writing: %s%s\n", disk->rdev, strerror(errno),
+            errno == EBUSY ? " (disk in use; close any programs using it and retry)" :
+            (errno == EACCES || errno == EPERM) ? " (try running with sudo)" : "");
+    return 1;
+}
+
 int vt_disk_unmount(const vt_disk *disk)
 {
     char cmd[256];
