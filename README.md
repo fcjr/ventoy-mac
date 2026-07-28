@@ -21,6 +21,31 @@ Many thanks to [longpanda](https://github.com/ventoy) for their amazing software
   <img src="docs/complete.png" alt="Progress sheet showing the installer log after a successful install" width="49%">
 </p>
 
+## Installation
+
+```sh
+brew install --cask fcjr/fcjr/ventoy2disk # install the gui app
+brew install --cask fcjr/fcjr/ventoy2disk-cli # install the ventoy2disk cli
+```
+
+Or grab the [latest release](https://github.com/fcjr/ventoy-mac/releases/latest).
+
+## Usage
+
+Open the app, pick your drive, on the left hand side, click the `+` on the top right, set your desired info,
+then hit `Erase and Install`.
+
+Or using the ventoy2disk cli:
+
+```sh
+diskutil list external          # find your drive
+sudo ventoy2disk -i /dev/disk4  # install
+sudo ventoy2disk -u /dev/disk4  # update Ventoy, keeping your files
+sudo ventoy2disk -l /dev/disk4  # show what's installed
+```
+
+Run `ventoy2disk -h` for the full option list.
+
 ## License
 
 GPLv3+, same as Ventoy. Partition layout logic and vendored components are
