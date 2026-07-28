@@ -51,6 +51,10 @@ options, install/update buttons with double confirmation, and a live log.
 It embeds the CLI and runs it with administrator privileges via the native
 authorization prompt, so no `sudo` is needed.
 
+Only physical external disks are listed. To test against an attached disk
+image (`hdiutil attach -nomount`), run
+`defaults write com.leftshift.ventoy.app ShowVirtualDisks -bool YES`.
+
 ## Build
 
 ```sh
