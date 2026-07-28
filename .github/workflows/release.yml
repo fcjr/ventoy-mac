@@ -1,0 +1,126 @@
+name: release
+
+# Builds, signs, and notarizes the app on version tags, attaches the app zip
+# and CLI tarball to a GitHub Release, signs the update for Sparkle, appends
+# the appcast entry on main, and publishes the Homebrew cask.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag matches the Makefile version
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          grep -q "^V2D_VERSION := ${version}\$" Makefile
+
+      - name: Import the signing certificate
+        # The .p12 comes in base64 via env (single-line values are masked
+        # reliably) into a throwaway keychain that dies with the runner.
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/build.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "$password" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+
+      - name: Build
+        run: make app
+
+      - name: Notarize and staple
+        env:
+          APPLE_API_KEY_P8_BASE64: ${{ secrets.APPLE_API_KEY_P8_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$APPLE_API_KEY_P8_BASE64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+          ditto -c -k --sequesterRsrc --keepParent build/Ventoy2Disk.app "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --key "$RUNNER_TEMP/AuthKey.p8" \
+            --key-id "${{ secrets.APPLE_API_KEY }}" \
+            --issuer "${{ secrets.APPLE_API_ISSUER }}" \
+            --wait
+          xcrun stapler staple build/Ventoy2Disk.app
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          ditto -c -k --sequesterRsrc --keepParent build/Ventoy2Disk.app \
+            "build/Ventoy2Disk-${version}.zip"
+          tar -C build -czf "build/ventoy2disk-${version}-macos.tar.gz" ventoy2disk
+
+      - name: Sign the update for Sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          echo "$SPARKLE_PRIVATE_KEY" | build/Sparkle/bin/sign_update \
+            --ed-key-file - "build/Ventoy2Disk-${version}.zip" \
+            > "$RUNNER_TEMP/sparkle-attrs"
+
+      - name: Create the GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "build/Ventoy2Disk-${version}.zip" \
+            "build/ventoy2disk-${version}-macos.tar.gz" \
+            --title "Ventoy2Disk ${version}" \
+            --generate-notes
+
+      - name: Update the appcast on main
+        # GITHUB_TOKEN pushes don't trigger workflows, which is exactly right
+        # for a bot commit that only edits appcast.xml.
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          scripts/update-appcast.sh "$version" "$(cat "$RUNNER_TEMP/sparkle-attrs")"
+          git add appcast.xml
+          git commit -m "Update appcast for ${version}"
+          git push origin main
+
+      - name: Publish the Homebrew cask
+        env:
+          TAP_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sha="$(shasum -a 256 "build/Ventoy2Disk-${version}.zip" | awk '{print $1}')"
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/fcjr/homebrew-fcjr.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Casks"
+          sed -e "s/VERSION_PLACEHOLDER/${version}/" -e "s/SHA256_PLACEHOLDER/${sha}/" \
+            homebrew/ventoy2disk.rb > "$RUNNER_TEMP/tap/Casks/ventoy2disk.rb"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Casks/ventoy2disk.rb
+          git diff --cached --quiet || git commit -m "ventoy2disk ${version}"
+          git push

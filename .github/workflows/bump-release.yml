@@ -1,0 +1,52 @@
+name: bump-release
+
+# One-click release from the Actions tab: bump V2D_VERSION, commit, tag
+# vX.Y.Z, and push - the tag then triggers release.yml. Runs with a GitHub
+# App token because pushes made with the default GITHUB_TOKEN deliberately
+# don't trigger other workflows.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_type:
+        description: "Version bump type"
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major]
+
+concurrency:
+  group: repo-commits
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Configure git
+        run: |
+          git config user.name "Frank Chiarulli Jr."
+          git config user.email "frank@frankchiarulli.com"
+
+      - name: Bump version
+        id: bump
+        run: |
+          version="$(scripts/bump-version.sh "${{ inputs.version_type }}")"
+          git commit -am "Release ${version}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Tag and push
+        run: |
+          git tag "v${{ steps.bump.outputs.version }}"
+          git push --no-verify origin HEAD "v${{ steps.bump.outputs.version }}"
