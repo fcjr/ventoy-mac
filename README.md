@@ -90,5 +90,17 @@ the Ventoy source tree.
 
 ## License
 
-GPLv3+, same as Ventoy. Partition layout logic and vendored components are
-derived from the Ventoy project, Copyright (c) longpanda <admin@ventoy.net>.
+GPL-3.0-or-later — see [LICENSE](LICENSE). The installer logic is a port of
+Ventoy's `Ventoy2Disk`, Copyright (c) longpanda \<admin@ventoy.net\>,
+licensed GPLv3+. macOS-specific code Copyright (c) 2026 Frank Chiarulli Jr.
+
+Vendored components under `vendor/`, each with its upstream license text:
+
+- `vendor/ff14` — FatFs R0.14 by ChaN (one-clause BSD-style FatFs license,
+  see `vendor/ff14/LICENSE.txt`), including Ventoy's modifications.
+- `vendor/fat_io_lib` — FAT File IO Library by ultra-embedded.com,
+  GPL-2.0-or-later (see `vendor/fat_io_lib/License.txt`).
+- `vendor/xz` — xz-embedded by Lasse Collin and Igor Pavlov, public domain.
+
+All components are GPL-3.0-compatible, so the combined work is distributed
+under GPL-3.0-or-later.
