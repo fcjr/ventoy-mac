@@ -63,7 +63,15 @@ sign: $(BIN)
 	    echo "signing identity not found; leaving $(BIN) unsigned"; \
 	fi
 
-app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist
+ICON := $(BUILD)/AppIcon.icns
+
+$(ICON): app/icon.swift
+	rm -rf $(BUILD)/AppIcon.iconset
+	mkdir -p $(BUILD)/AppIcon.iconset
+	swift app/icon.swift $(BUILD)/AppIcon.iconset
+	iconutil -c icns $(BUILD)/AppIcon.iconset -o $(ICON)
+
+app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist $(ICON)
 	rm -rf $(APP)
 	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
 	swiftc -O -parse-as-library -target arm64-apple-macos14.0 $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
@@ -71,6 +79,7 @@ app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist
 	lipo -create -output $(APP)/Contents/MacOS/Ventoy2Disk $(BUILD)/gui-arm64 $(BUILD)/gui-x86_64
 	sed 's/@VERSION@/$(V2D_VERSION)/g' app/Info.plist > $(APP)/Contents/Info.plist
 	cp $(BIN) $(APP)/Contents/Resources/ventoy2disk
+	cp $(ICON) $(APP)/Contents/Resources/AppIcon.icns
 	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_IDENTITY)"; then \
 	    codesign --force --options runtime --timestamp \
 	        --identifier $(APP_ID) --sign "$(SIGN_IDENTITY)" $(APP); \
