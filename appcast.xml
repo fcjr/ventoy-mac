@@ -29,5 +29,16 @@
     <link>https://raw.githubusercontent.com/fcjr/ventoy-mac/main/appcast.xml</link>
     <description>Updates for Ventoy2Disk for macOS</description>
     <language>en</language>
+    <item>
+      <title>0.1.1</title>
+      <sparkle:version>0.1.1</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Tue, 28 Jul 2026 03:02:11 +0000</pubDate>
+      <enclosure
+        url="https://github.com/fcjr/ventoy-mac/releases/download/v0.1.1/Ventoy2Disk-0.1.1.zip"
+        sparkle:edSignature="t2WTOUHEN2uRq1Oos9bz+sg+vmurMz7GCcTTQYpyHCYwq7jbjWVLpjr50HSVY49FP3V6wp2T0ai1zb2o2OdzCw==" length="1965603"
+        type="application/octet-stream"/>
+    </item>
   </channel>
 </rss>
