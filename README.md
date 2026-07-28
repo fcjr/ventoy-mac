@@ -46,10 +46,11 @@ make app
 open build/Ventoy2Disk.app
 ```
 
-A SwiftUI app (macOS 13+) with a device picker, MBR/GPT and secure-boot
-options, install/update buttons with double confirmation, and a live log.
-It embeds the CLI and runs it with administrator privileges via the native
-authorization prompt, so no `sudo` is needed.
+A SwiftUI app (macOS 13+) in the Disk Utility style: external disks in a
+sidebar, a partition map and info pane per disk, install options in an
+erase sheet, and progress with a details console. It embeds the CLI and
+runs it through Authorization Services, so the password prompt is
+attributed to Ventoy2Disk and no `sudo` is needed.
 
 Only physical external disks are listed. To test against an attached disk
 image (`hdiutil attach -nomount`), run
