@@ -104,10 +104,11 @@ app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist $(ICON) $(SPARKLE_FW)
 	    echo "signing identity not found; leaving $(APP) unsigned"; \
 	fi
 
+# Local packaging for testing only. Releases are built, signed, notarized,
+# and published by .github/workflows/release.yml.
 dist: app
 	ditto -c -k --sequesterRsrc --keepParent $(APP) $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip
-	@echo "release archive: $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip"
-	@$(SPARKLE_DIR)/bin/sign_update $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip
+	@echo "archive: $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip"
 
 clean:
 	rm -rf $(BUILD)
