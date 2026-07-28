@@ -6,7 +6,32 @@ struct VentoyApp: App {
         WindowGroup("Ventoy2Disk") {
             ContentView()
         }
-        .defaultSize(width: 560, height: 620)
+        .defaultSize(width: 760, height: 480)
+        .commands {
+            CommandGroup(after: .toolbar) {
+                RescanCommand()
+            }
+        }
+    }
+}
+
+struct RescanCommand: View {
+    @FocusedValue(\.refreshDisks) private var refresh
+    var body: some View {
+        Button("Rescan Disks") { refresh?() }
+            .keyboardShortcut("r")
+            .disabled(refresh == nil)
+    }
+}
+
+struct RefreshDisksKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
+extension FocusedValues {
+    var refreshDisks: (() -> Void)? {
+        get { self[RefreshDisksKey.self] }
+        set { self[RefreshDisksKey.self] = newValue }
     }
 }
 
@@ -14,239 +39,132 @@ struct ContentView: View {
     @StateObject private var runner = Runner()
     @State private var disks: [DiskInfo] = []
     @State private var selectedID: String?
-    @State private var useGPT = false
-    @State private var secureBoot = true
-    @State private var label = "Ventoy"
-    @State private var reserveMB = ""
     @State private var latest: String?
-    @State private var confirmErase = false
-    @State private var confirmErase2 = false
-    @State private var consoleOpen = false
+    @State private var showInstallSheet = false
+    @State private var showProgress = false
+    @State private var actionTitle = "Install"
 
     private var selected: DiskInfo? { disks.first { $0.id == selectedID } }
-    private var phase: InstallPhase {
-        InstallPhase.parse(runner.log, running: runner.running)
-    }
-    private var reserveBytes: UInt64 {
-        UInt64(max(0, Int(reserveMB.trimmingCharacters(in: .whitespaces)) ?? 0)) * 1_048_576
-    }
 
     var body: some View {
-        VStack(spacing: 0) {
-            form
-            Divider()
-            bottomBar
+        NavigationSplitView {
+            sidebar
+        } detail: {
+            if let d = selected {
+                DiskDetailView(disk: d, latest: latest)
+            } else {
+                emptyState
+            }
         }
-        .frame(minWidth: 540, minHeight: 500)
+        .navigationTitle(selected?.mediaName ?? "Ventoy2Disk")
+        .navigationSubtitle(selected.map { subtitle(for: $0) } ?? "")
+        .toolbar { toolbarContent }
+        .focusedSceneValue(\.refreshDisks, refresh)
+        .frame(minWidth: 700, minHeight: 420)
         .onAppear {
             refresh()
             Task { latest = await DiskLister.latestReleaseTag() }
         }
         .onChange(of: runner.running) { running in
-            if running { consoleOpen = true } else { refresh() }
+            if !running { refresh() }
         }
-        .alert("Erase \(selected?.id ?? "disk")?", isPresented: $confirmErase) {
-            Button("Cancel", role: .cancel) {}
-            Button("Continue", role: .destructive) { confirmErase2 = true }
-        } message: {
-            Text("All data on \(selected?.mediaName ?? "") (\(selected?.sizeString ?? "")) will be permanently lost.")
+        .sheet(isPresented: $showInstallSheet) {
+            if let d = selected {
+                InstallSheet(disk: d) { options in
+                    actionTitle = d.ventoyInstalled ? "Reinstall" : "Install"
+                    runInstall(d, options)
+                    showProgress = true
+                }
+            }
         }
-        .alert("Are you absolutely sure?", isPresented: $confirmErase2) {
-            Button("Cancel", role: .cancel) {}
-            Button("Erase and Install", role: .destructive) { runInstall() }
-        } message: {
-            Text("\(selected?.devPath ?? "") will be wiped and Ventoy will be installed (\(useGPT ? "GPT" : "MBR")).")
+        .sheet(isPresented: $showProgress) {
+            ProgressSheet(runner: runner, disk: selected, actionTitle: actionTitle) {
+                showProgress = false
+            }
         }
     }
 
-    private var form: some View {
-        Form {
-            Section("Device") {
-                HStack {
-                    Picker("Disk", selection: $selectedID) {
-                        if disks.isEmpty {
-                            Text("No external disks").tag(String?.none)
-                        }
-                        ForEach(disks) { d in
-                            Text("\(d.mediaName) (\(d.sizeString)) — \(d.id)").tag(Optional(d.id))
-                        }
-                    }
-                    .disabled(runner.running)
-                    .help("The external disk to install Ventoy on")
-                    Button {
-                        refresh()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .disabled(runner.running)
-                    .help("Rescan external disks")
-                }
-                if let d = selected {
-                    LabeledContent("Ventoy") {
-                        Text(d.ventoyInstalled
-                             ? "\(d.ventoyVersion ?? "Installed") (\(d.scheme ?? "?"))"
-                             : "Not installed")
-                            .foregroundStyle(d.ventoyInstalled ? .primary : .secondary)
-                    }
-                    .help(d.ventoyInstalled
-                          ? "This disk already has the Ventoy layout. Update keeps the files on the data partition."
-                          : "No Ventoy layout detected on this disk.")
-                    LabeledContent("Now") {
-                        PartitionBar(regions: nowRegions(d), faded: true)
-                            .frame(maxWidth: .infinity)
-                            .help("Current layout — everything here is erased by an install.")
-                    }
-                    LabeledContent("After") {
-                        PartitionBar(regions: afterRegions(d),
-                                     activeID: runner.running ? phase.activeRegion : nil)
-                            .frame(maxWidth: .infinity)
-                            .help("Layout written by the installer. Small regions are drawn wider than scale.")
-                    }
-                    HStack(spacing: 12) {
-                        ForEach(legend(d), id: \.text) { item in
-                            LegendItem(kind: item.kind, text: item.text)
-                        }
-                        Spacer()
-                        Text("\(d.sectorCount.formatted()) sectors")
-                            .font(.caption2.monospacedDigit())
-                            .foregroundStyle(.secondary)
-                    }
-                } else {
-                    Text("Insert a USB drive, then rescan.")
+    private var sidebar: some View {
+        List(selection: $selectedID) {
+            Section("External") {
+                if disks.isEmpty {
+                    Text("No disks")
                         .foregroundStyle(.secondary)
+                } else {
+                    ForEach(disks) { d in
+                        Label {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(d.mediaName)
+                                    .lineLimit(1)
+                                Text(d.sizeString)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } icon: {
+                            Image(systemName: "externaldrive")
+                        }
+                        .tag(d.id)
+                    }
                 }
-                LabeledContent("Latest release", value: latest ?? "…")
-                    .help("Latest Ventoy release on GitHub. Installs download this version automatically.")
             }
+        }
+        .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 170, ideal: 200)
+    }
 
-            Section("Options") {
-                Picker("Partition style", selection: $useGPT) {
-                    Text("MBR").tag(false)
-                    Text("GPT").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .help("MBR boots the widest range of machines; GPT is required for disks over 2 TB.")
-                Toggle("Secure boot support", isOn: $secureBoot)
-                    .help("Keep the shim chain so the drive boots with Secure Boot enabled. Turn off only if a machine rejects the shim.")
-                TextField("Volume label", text: $label)
-                    .help("Volume label for the exFAT data partition")
-                TextField("Reserved space (MB)", text: $reserveMB)
-                    .help("Leave unpartitioned space at the end of the disk, before the VTOYEFI partition")
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            Button {
+                refresh()
+            } label: {
+                Label("Rescan", systemImage: "arrow.clockwise")
             }
             .disabled(runner.running)
+            .help("Rescan external disks (⌘R)")
 
-            Section {
-                DisclosureGroup("Console", isExpanded: $consoleOpen) {
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            Text(runner.log.isEmpty ? "Idle." : runner.log)
-                                .font(.caption.monospaced())
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .id("logEnd")
-                        }
-                        .frame(height: 160)
-                        .onChange(of: runner.log) { _ in
-                            proxy.scrollTo("logEnd", anchor: .bottom)
-                        }
-                    }
-                }
-                .help("Raw output from the ventoy2disk installer")
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var bottomBar: some View {
-        HStack(spacing: 12) {
-            status
-            Spacer()
-            Button("Update Ventoy") {
-                runUpdate()
+            Button {
+                guard let d = selected else { return }
+                actionTitle = "Update"
+                runUpdate(d)
+                showProgress = true
+            } label: {
+                Label("Update", systemImage: "arrow.triangle.2.circlepath")
             }
             .disabled(runner.running || selected?.ventoyInstalled != true)
-            .help("Updates the boot files in place. Files on the data partition are untouched.")
-            Button(selected?.ventoyInstalled == true ? "Reinstall Ventoy…" : "Install Ventoy…") {
-                confirmErase = true
+            .help("Update the boot files in place. Files on the data partition are untouched.")
+
+            Button {
+                showInstallSheet = true
+            } label: {
+                Label("Install Ventoy…", systemImage: "externaldrive.badge.plus")
             }
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut(.defaultAction)
             .disabled(runner.running || selected == nil)
-            .help("Erases the whole disk and installs Ventoy. Asks twice before touching anything.")
+            .help("Erase the selected disk and install Ventoy")
         }
-        .padding(12)
     }
 
-    @ViewBuilder
-    private var status: some View {
-        if runner.running {
-            HStack(spacing: 8) {
-                ProgressView()
-                    .controlSize(.small)
-                Text(phase.label ?? "Waiting for authorization…")
-                    .foregroundStyle(.secondary)
-            }
-        } else if runner.canceled {
-            Text("Canceled.")
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "externaldrive.badge.questionmark")
+                .font(.system(size: 44))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
-        } else if runner.lastSucceeded == true {
-            Label("Done — copy ISO files to '\(label.trimmingCharacters(in: .whitespaces).isEmpty ? "Ventoy" : label)'",
-                  systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
-        } else if runner.lastSucceeded == false {
-            Label("Failed — see console", systemImage: "exclamationmark.triangle.fill")
-                .foregroundStyle(.red)
+            Text("No External Disks")
+                .font(.title3.weight(.medium))
+            Text("Insert a USB drive, then rescan.")
+                .foregroundStyle(.secondary)
+            Button("Rescan") { refresh() }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private struct LegendSpec {
-        let kind: RegionKind
-        let text: String
-    }
-
-    private func legend(_ d: DiskInfo) -> [LegendSpec] {
-        var items = [
-            LegendSpec(kind: .boot, text: "grub"),
-            LegendSpec(kind: .data, text: "exFAT \(dataSizeString(d))"),
-        ]
-        if reserveBytes > 0 {
-            items.append(LegendSpec(kind: .reserved,
-                                    text: "reserved \(reserveMB.trimmingCharacters(in: .whitespaces)) MB"))
+    private func subtitle(for d: DiskInfo) -> String {
+        var parts = [d.sizeString, schemeName(d.scheme)]
+        if d.ventoyInstalled {
+            parts.append("Ventoy \(d.ventoyVersion ?? "installed")")
         }
-        items.append(LegendSpec(kind: .efi, text: "VTOYEFI 32 MB"))
-        return items
-    }
-
-    private func dataSizeString(_ d: DiskInfo) -> String {
-        let overhead = UInt64(33_554_432) + 1_048_576 + reserveBytes
-        let bytes = d.size > overhead ? d.size - overhead : 0
-        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
-    }
-
-    private func nowRegions(_ d: DiskInfo) -> [MapRegion] {
-        if d.parts.isEmpty {
-            return [MapRegion(id: "raw", label: "no partitions", kind: .existing, size: d.size)]
-        }
-        return d.parts.map { p in
-            MapRegion(id: p.id,
-                      label: p.name ?? p.content ?? "partition",
-                      kind: .existing,
-                      size: p.size)
-        }
-    }
-
-    private func afterRegions(_ d: DiskInfo) -> [MapRegion] {
-        var regions = [
-            MapRegion(id: "boot", label: "grub", kind: .boot, size: 1_048_576, fixedWidth: 8),
-            MapRegion(id: "data", label: "exFAT", kind: .data, size: max(d.size, 1)),
-        ]
-        if reserveBytes > 0 {
-            regions.append(MapRegion(id: "rsv", label: "reserved", kind: .reserved,
-                                     size: reserveBytes, fixedWidth: 20))
-        }
-        regions.append(MapRegion(id: "efi", label: "VTOYEFI", kind: .efi,
-                                 size: 33_554_432, fixedWidth: 36))
-        return regions
+        return parts.joined(separator: " · ")
     }
 
     private func refresh() {
@@ -259,24 +177,143 @@ struct ContentView: View {
         }
     }
 
-    private func runInstall() {
-        guard let d = selected else { return }
+    private func runInstall(_ d: DiskInfo, _ options: InstallOptions) {
         var args = [d.ventoyInstalled ? "-I" : "-i", "-y"]
-        if useGPT { args.append("-g") }
-        if !secureBoot { args.append("-S") }
-        let trimmed = label.trimmingCharacters(in: .whitespaces)
+        if options.gpt { args.append("-g") }
+        if !options.secureBoot { args.append("-S") }
+        let trimmed = options.label.trimmingCharacters(in: .whitespaces)
         if !trimmed.isEmpty {
             args += ["-L", trimmed]
         }
-        if let mb = Int(reserveMB.trimmingCharacters(in: .whitespaces)), mb > 0 {
+        if let mb = Int(options.reserveMB.trimmingCharacters(in: .whitespaces)), mb > 0 {
             args += ["-r", String(mb)]
         }
         args.append(d.devPath)
         runner.run(arguments: args)
     }
 
-    private func runUpdate() {
-        guard let d = selected else { return }
+    private func runUpdate(_ d: DiskInfo) {
         runner.run(arguments: ["-u", "-y", d.devPath])
+    }
+}
+
+func schemeName(_ scheme: String?) -> String {
+    switch scheme {
+    case "MBR": return "Master Boot Record"
+    case "GPT": return "GUID Partition Map"
+    default: return "No partition table"
+    }
+}
+
+struct DiskDetailView: View {
+    let disk: DiskInfo
+    let latest: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 14) {
+                Image(systemName: "externaldrive")
+                    .font(.system(size: 40))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(disk.mediaName)
+                        .font(.title2.weight(.semibold))
+                    Text("External · \(schemeName(disk.scheme))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                PartitionBar(regions: nowRegions)
+                    .help(disk.ventoyInstalled
+                          ? "Current layout: this disk carries Ventoy. Small regions are drawn wider than scale."
+                          : "Current layout — installing Ventoy erases everything here.")
+                HStack(spacing: 12) {
+                    ForEach(nowLegend, id: \.text) { item in
+                        LegendItem(kind: item.kind, text: item.text)
+                    }
+                    Spacer()
+                    Text("\(disk.sectorCount.formatted()) sectors")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Divider()
+
+            Grid(alignment: .topLeading, horizontalSpacing: 40, verticalSpacing: 16) {
+                GridRow {
+                    infoCell("Device node", disk.devPath, mono: true)
+                    infoCell("Capacity", disk.sizeString)
+                    infoCell("Partition map", schemeName(disk.scheme))
+                }
+                GridRow {
+                    infoCell("Ventoy",
+                             disk.ventoyInstalled
+                             ? (disk.ventoyVersion ?? "Installed")
+                             : "Not installed")
+                    infoCell("Latest release", latest ?? "…")
+                    Color.clear
+                        .gridCellUnsizedAxes([.horizontal, .vertical])
+                }
+            }
+
+            if !disk.ventoyInstalled {
+                Text("Install Ventoy to boot ISO files from this drive.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func infoCell(_ title: String, _ value: String, mono: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(mono ? .body.monospaced() : .body)
+        }
+    }
+
+    private var nowRegions: [MapRegion] {
+        if disk.parts.isEmpty {
+            return [MapRegion(id: "raw", label: "No partitions", kind: .existing, size: disk.size)]
+        }
+        if disk.ventoyInstalled, disk.parts.count == 2 {
+            let p1 = disk.parts[0]
+            let p2 = disk.parts[1]
+            return [
+                MapRegion(id: p1.id, label: p1.name ?? "exFAT", kind: .data, size: p1.size),
+                MapRegion(id: p2.id, label: "VTOYEFI", kind: .efi, size: p2.size, fixedWidth: 36),
+            ]
+        }
+        return disk.parts.map { p in
+            MapRegion(id: p.id,
+                      label: p.name ?? p.content ?? "partition",
+                      kind: .existing,
+                      size: p.size)
+        }
+    }
+
+    private var nowLegend: [LegendSpec] {
+        if disk.ventoyInstalled, disk.parts.count == 2 {
+            let dataSize = ByteCountFormatter.string(fromByteCount: Int64(disk.parts[0].size),
+                                                     countStyle: .file)
+            return [
+                LegendSpec(kind: .data, text: "\(disk.parts[0].name ?? "exFAT") \(dataSize)"),
+                LegendSpec(kind: .efi, text: "VTOYEFI 32 MB"),
+            ]
+        }
+        return disk.parts.map { p in
+            let size = ByteCountFormatter.string(fromByteCount: Int64(p.size), countStyle: .file)
+            return LegendSpec(kind: .existing, text: "\(p.name ?? p.content ?? "partition") \(size)")
+        }
     }
 }

@@ -79,7 +79,7 @@ struct PartitionBar: View {
 
     var body: some View {
         GeometryReader { geo in
-            let spacing: CGFloat = 2
+            let spacing: CGFloat = 1
             let fixed = regions.compactMap(\.fixedWidth).reduce(0, +)
             let flexTotal = regions.filter { $0.fixedWidth == nil }
                 .reduce(0.0) { $0 + Double($1.size) }
@@ -92,8 +92,12 @@ struct PartitionBar: View {
                         .frame(width: w)
                 }
             }
+            .background(Color(nsColor: .separatorColor))
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay(RoundedRectangle(cornerRadius: 5)
+                .stroke(Color(nsColor: .separatorColor), lineWidth: 1))
         }
-        .frame(height: 22)
+        .frame(height: 20)
         .onAppear {
             guard !reduceMotion else { return }
             withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) {
@@ -104,12 +108,11 @@ struct PartitionBar: View {
 
     private func segment(_ r: MapRegion, width: CGFloat) -> some View {
         let active = activeID == r.id || activeID == "all"
-        return RoundedRectangle(cornerRadius: 4)
+        return Rectangle()
             .fill(r.kind.fill)
             .overlay {
                 if r.kind.hatched {
                     Hatch(color: Color(nsColor: .tertiaryLabelColor))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
                 }
             }
             .overlay {
@@ -123,7 +126,7 @@ struct PartitionBar: View {
                 }
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 4)
+                Rectangle()
                     .stroke(active ? Color(nsColor: .controlAccentColor) : .clear, lineWidth: 1.5)
             }
             .opacity(activeBrightness(active))
