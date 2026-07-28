@@ -107,20 +107,23 @@ jobs:
           git commit -m "Update appcast for ${version}"
           git push origin main
 
-      - name: Publish the Homebrew cask
+      - name: Publish the Homebrew casks
         env:
           TAP_TOKEN: ${{ secrets.GORELEASER_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          sha="$(shasum -a 256 "build/Ventoy2Disk-${version}.zip" | awk '{print $1}')"
+          sha_app="$(shasum -a 256 "build/Ventoy2Disk-${version}.zip" | awk '{print $1}')"
+          sha_cli="$(shasum -a 256 "build/ventoy2disk-${version}-macos.tar.gz" | awk '{print $1}')"
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/fcjr/homebrew-fcjr.git" "$RUNNER_TEMP/tap"
           mkdir -p "$RUNNER_TEMP/tap/Casks"
-          sed -e "s/VERSION_PLACEHOLDER/${version}/" -e "s/SHA256_PLACEHOLDER/${sha}/" \
+          sed -e "s/VERSION_PLACEHOLDER/${version}/" -e "s/SHA256_PLACEHOLDER/${sha_app}/" \
             homebrew/ventoy2disk.rb > "$RUNNER_TEMP/tap/Casks/ventoy2disk.rb"
+          sed -e "s/VERSION_PLACEHOLDER/${version}/" -e "s/SHA256_PLACEHOLDER/${sha_cli}/" \
+            homebrew/ventoy2disk-cli.rb > "$RUNNER_TEMP/tap/Casks/ventoy2disk-cli.rb"
           cd "$RUNNER_TEMP/tap"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Casks/ventoy2disk.rb
+          git add Casks/ventoy2disk.rb Casks/ventoy2disk-cli.rb
           git diff --cached --quiet || git commit -m "ventoy2disk ${version}"
           git push

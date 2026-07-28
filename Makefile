@@ -3,7 +3,8 @@ SIGN_IDENTITY := Developer ID Application: Left Shift Logical, LLC (KNBPD99JQM)
 BUNDLE_ID := com.leftshift.ventoy
 
 CC := cc
-CFLAGS := -O2 -Wall -std=c11 -DV2D_VERSION=\"$(V2D_VERSION)\" \
+MINVER := -mmacosx-version-min=11.0
+CFLAGS := -O2 -Wall -std=c11 $(MINVER) -DV2D_VERSION=\"$(V2D_VERSION)\" \
           -DFATFS_INC_FORMAT_SUPPORT=0 \
           -Isrc -Ivendor/ff14/source -Ivendor/fat_io_lib -Ivendor/xz
 ARCHS := -arch arm64 -arch x86_64
@@ -52,7 +53,7 @@ $(BUILD)/%.o: %.c $(HDRS)
 	$(CC) $(CFLAGS) $(ARCHS) -c $< -o $@
 
 $(BIN): $(OBJS)
-	$(CC) $(ARCHS) $(OBJS) -o $@
+	$(CC) $(ARCHS) $(MINVER) $(OBJS) -o $@
 
 sign: $(BIN)
 	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_IDENTITY)"; then \
