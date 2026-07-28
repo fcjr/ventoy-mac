@@ -28,5 +28,11 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>GPLv3+</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUFeedURL</key>
+	<string>https://raw.githubusercontent.com/fcjr/ventoy-mac/main/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>WArXB/9ipPXBqgStv95Sw1WxCFDvWy1FWAN4u/l5w8g=</string>
 </dict>
 </plist>

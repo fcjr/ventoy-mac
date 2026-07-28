@@ -63,6 +63,14 @@ sign: $(BIN)
 	    echo "signing identity not found; leaving $(BIN) unsigned"; \
 	fi
 
+SPARKLE_VERSION := 2.9.4
+SPARKLE_DIR := $(BUILD)/Sparkle
+SPARKLE_FW := $(SPARKLE_DIR)/Sparkle.framework
+
+$(SPARKLE_FW):
+	mkdir -p $(SPARKLE_DIR)
+	curl -sfL https://github.com/sparkle-project/Sparkle/releases/download/$(SPARKLE_VERSION)/Sparkle-$(SPARKLE_VERSION).tar.xz | tar -xJ -C $(SPARKLE_DIR)
+
 ICON := $(BUILD)/AppIcon.icns
 
 $(ICON): app/icon.swift
@@ -71,16 +79,23 @@ $(ICON): app/icon.swift
 	swift app/icon.swift $(BUILD)/AppIcon.iconset
 	iconutil -c icns $(BUILD)/AppIcon.iconset -o $(ICON)
 
-app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist $(ICON)
+app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist $(ICON) $(SPARKLE_FW)
 	rm -rf $(APP)
-	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources
-	swiftc -O -parse-as-library -target arm64-apple-macos14.0 $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
-	swiftc -O -parse-as-library -target x86_64-apple-macos14.0 $(SWIFT_SRCS) -o $(BUILD)/gui-x86_64
+	mkdir -p $(APP)/Contents/MacOS $(APP)/Contents/Resources $(APP)/Contents/Frameworks
+	swiftc -O -parse-as-library -target arm64-apple-macos14.0 -F $(SPARKLE_DIR) \
+	    -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
+	    $(SWIFT_SRCS) -o $(BUILD)/gui-arm64
+	swiftc -O -parse-as-library -target x86_64-apple-macos14.0 -F $(SPARKLE_DIR) \
+	    -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
+	    $(SWIFT_SRCS) -o $(BUILD)/gui-x86_64
 	lipo -create -output $(APP)/Contents/MacOS/Ventoy2Disk $(BUILD)/gui-arm64 $(BUILD)/gui-x86_64
 	sed 's/@VERSION@/$(V2D_VERSION)/g' app/Info.plist > $(APP)/Contents/Info.plist
 	cp $(BIN) $(APP)/Contents/Resources/ventoy2disk
 	cp $(ICON) $(APP)/Contents/Resources/AppIcon.icns
+	ditto $(SPARKLE_FW) $(APP)/Contents/Frameworks/Sparkle.framework
 	@if security find-identity -v -p codesigning 2>/dev/null | grep -q "$(SIGN_IDENTITY)"; then \
+	    codesign --force --options runtime --timestamp --deep \
+	        --sign "$(SIGN_IDENTITY)" $(APP)/Contents/Frameworks/Sparkle.framework; \
 	    codesign --force --options runtime --timestamp \
 	        --identifier $(APP_ID) --sign "$(SIGN_IDENTITY)" $(APP); \
 	    echo "signed $(APP) as $(APP_ID)"; \
@@ -88,7 +103,12 @@ app: $(BIN) sign $(SWIFT_SRCS) app/Info.plist $(ICON)
 	    echo "signing identity not found; leaving $(APP) unsigned"; \
 	fi
 
+dist: app
+	ditto -c -k --sequesterRsrc --keepParent $(APP) $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip
+	@echo "release archive: $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip"
+	@$(SPARKLE_DIR)/bin/sign_update $(BUILD)/Ventoy2Disk-$(V2D_VERSION).zip
+
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all sign app clean
+.PHONY: all sign app dist clean

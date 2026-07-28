@@ -1,13 +1,21 @@
 import SwiftUI
+import Sparkle
 
 @main
 struct VentoyApp: App {
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: true,
+                                                                 updaterDelegate: nil,
+                                                                 userDriverDelegate: nil)
+
     var body: some Scene {
         WindowGroup("Ventoy2Disk") {
             ContentView()
         }
         .defaultSize(width: 760, height: 480)
         .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesView(updater: updaterController.updater)
+            }
             CommandGroup(after: .toolbar) {
                 RescanCommand()
             }

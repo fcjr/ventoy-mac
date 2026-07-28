@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparkle appcast for Ventoy2Disk.
+
+  Publishing a release:
+    1. bump V2D_VERSION in the Makefile
+    2. `make dist` - builds and zips the app, prints the EdDSA signature
+    3. upload build/Ventoy2Disk-<version>.zip as a GitHub release asset
+    4. add an <item> below using the printed sparkle:edSignature and length,
+       then commit and push (the app reads this file from the main branch)
+
+  Item template:
+    <item>
+      <title>0.1.1</title>
+      <sparkle:version>0.1.1</sparkle:version>
+      <sparkle:shortVersionString>0.1.1</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Mon, 27 Jul 2026 00:00:00 +0000</pubDate>
+      <enclosure
+        url="https://github.com/fcjr/ventoy-mac/releases/download/v0.1.1/Ventoy2Disk-0.1.1.zip"
+        sparkle:edSignature="SIGNATURE"
+        length="LENGTH"
+        type="application/octet-stream"/>
+    </item>
+-->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Ventoy2Disk</title>
+    <link>https://raw.githubusercontent.com/fcjr/ventoy-mac/main/appcast.xml</link>
+    <description>Updates for Ventoy2Disk for macOS</description>
+    <language>en</language>
+  </channel>
+</rss>
