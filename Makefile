@@ -113,4 +113,9 @@ dist: app
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all sign app dist clean
+test-config:
+	@mkdir -p $(BUILD)
+	swiftc app/Sources/BootMenuConfiguration.swift app/Tests/BootMenuConfigurationTests.swift -o $(BUILD)/test-config
+	$(BUILD)/test-config
+
+.PHONY: all sign app dist clean test-config
