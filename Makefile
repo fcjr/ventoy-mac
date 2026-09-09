@@ -113,4 +113,9 @@ dist: app
 clean:
 	rm -rf $(BUILD)
 
-.PHONY: all sign app dist clean
+test-images:
+	@mkdir -p $(BUILD)
+	swiftc app/Sources/ImageLibrary.swift Tests/ImageTests.swift -o $(BUILD)/test-images
+	$(BUILD)/test-images
+
+.PHONY: all sign app dist clean test-images

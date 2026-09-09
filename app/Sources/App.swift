@@ -50,6 +50,7 @@ struct ContentView: View {
     @State private var latest: String?
     @State private var showInstallSheet = false
     @State private var showProgress = false
+    @State private var imagesDisk: DiskInfo?
     @State private var actionTitle = "Install"
 
     private var selected: DiskInfo? { disks.first { $0.id == selectedID } }
@@ -89,6 +90,9 @@ struct ContentView: View {
             ProgressSheet(runner: runner, disk: selected, actionTitle: actionTitle) {
                 showProgress = false
             }
+        }
+        .sheet(item: $imagesDisk) { disk in
+            ImagesSheet(disk: disk)
         }
     }
 
@@ -150,6 +154,14 @@ struct ContentView: View {
             }
             .disabled(runner.running || selected == nil)
             .help("Erase the selected disk and install Ventoy")
+
+            Button {
+                imagesDisk = selected
+            } label: {
+                Label("Images", systemImage: "photo.on.rectangle.angled")
+            }
+            .disabled(selected?.ventoyInstalled != true || runner.running)
+            .help("Add or view boot images on the Ventoy data partition")
         }
     }
 
