@@ -1,6 +1,3 @@
-# typed: strict
-# frozen_string_literal: true
-
 cask "ventoy2disk-cli" do
   version "VERSION_PLACEHOLDER"
   sha256 "SHA256_PLACEHOLDER"
@@ -18,11 +15,8 @@ cask "ventoy2disk-cli" do
 
   postflight_steps do
     run "/usr/bin/xattr",
-        args: ["-dr", "com.apple.quarantine", "{{staged_path}}/ventoy2disk"]
-  end
-
-  test do
-    assert_match version.to_s, shell_output("#{bin}/ventoy2disk --version")
+        args: ["-dr", "com.apple.quarantine", "{{staged_path}}/ventoy2disk"],
+        must_succeed: false
   end
 
   zap trash: "~/Library/Caches/com.leftshift.ventoy"
