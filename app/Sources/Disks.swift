@@ -23,7 +23,30 @@ struct DiskInfo: Identifiable, Hashable {
     }
 }
 
+struct DataVolume: Equatable {
+    let root: URL
+    let uuid: String
+}
+
 enum DiskLister {
+    static func dataVolume(for disk: DiskInfo) throws -> DataVolume {
+        guard disk.ventoyInstalled, disk.parts.count == 2,
+              let partition = disk.parts.first, partition.id == disk.id + "s1",
+              partition.name != "VTOYEFI" else {
+            throw ConfigurationError.unsupportedLayout
+        }
+        guard let info = diskutilPlist(["info", "-plist", partition.id]),
+              info["ParentWholeDisk"] as? String == disk.id,
+              info["VolumeName"] as? String != "VTOYEFI",
+              let uuid = info["VolumeUUID"] as? String, !uuid.isEmpty else {
+            throw ConfigurationError.disconnected
+        }
+        guard let point = info["MountPoint"] as? String, !point.isEmpty else {
+            throw ConfigurationError.notMounted
+        }
+        return DataVolume(root: URL(fileURLWithPath: point, isDirectory: true), uuid: uuid)
+    }
+
     static func externalDisks() -> [DiskInfo] {
         guard let dict = diskutilPlist(["list", "-plist", "external"]),
               let disks = dict["AllDisksAndPartitions"] as? [[String: Any]] else {
