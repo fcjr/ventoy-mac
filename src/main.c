@@ -40,6 +40,14 @@ int main(int argc, char **argv)
     /* Keep stdout ordered with stderr when piped (GUI console). */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
+    /* AuthorizationExecuteWithPrivileges only sets the effective uid.
+     * Promote the real uid too so access() checks and child processes
+     * (curl, tar) run as root and can reach the cache under /var/root. */
+    if (geteuid() == 0 && getuid() != 0)
+    {
+        setuid(0);
+    }
+
     memset(&opts, 0, sizeof(opts));
     opts.secure_boot = true;
     opts.label = "Ventoy";
