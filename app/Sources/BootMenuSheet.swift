@@ -1,26 +1,48 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+struct BootMenuValues: Equatable {
+    var menuMode = "0"
+    var automatic = false
+    var delay = 10
+    var image = ""
+
+    /// The timeout written to disk; nil removes the control.
+    var timeout: String? { automatic ? String(delay) : nil }
+
+    init() {}
+
+    init(configuration: BootMenuConfiguration) throws {
+        menuMode = configuration.value("VTOY_DEFAULT_MENU_MODE") ?? "0"
+        if let text = configuration.value("VTOY_MENU_TIMEOUT") {
+            guard let seconds = Int(text) else { throw ConfigurationError.invalidDocument }
+            // grub treats a negative timeout as "wait for a selection".
+            if seconds >= 0 {
+                automatic = true
+                delay = seconds
+            }
+        }
+        image = configuration.value("VTOY_DEFAULT_IMAGE") ?? ""
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.menuMode == rhs.menuMode && lhs.timeout == rhs.timeout && lhs.image == rhs.image
+    }
+}
+
 struct BootMenuSheet: View {
     let disk: DiskInfo
     @Environment(\.dismiss) private var dismiss
     @State private var snapshot: ConfigurationSnapshot?
     @State private var mount: DataVolume?
-    @State private var menuMode = "0"
-    @State private var automatic = false
-    @State private var delay = 10
-    @State private var image = ""
-    @State private var initialMode = "0"
-    @State private var initialAutomatic = false
-    @State private var initialDelay = 10
-    @State private var initialImage = ""
-    @State private var busy = true
+    @State private var values = BootMenuValues()
+    @State private var initial = BootMenuValues()
+    @State private var loading = true
+    @State private var saving = false
     @State private var errorMessage: String?
 
-    private var changed: Bool {
-        menuMode != initialMode || automatic != initialAutomatic ||
-        (automatic && delay != initialDelay) || image != initialImage
-    }
+    private var busy: Bool { loading || saving }
+    private var changed: Bool { values != initial }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -28,25 +50,25 @@ struct BootMenuSheet: View {
             Text(disk.parts.first?.name ?? disk.mediaName).foregroundStyle(.secondary)
             if let snapshot {
                 Form {
-                    Picker("Menu style", selection: $menuMode) {
+                    Picker("Menu style", selection: $values.menuMode) {
                         Text("List").tag("0")
                         Text("Folders").tag("1")
-                        if menuMode != "0" && menuMode != "1" {
-                            Text("Current value (\(menuMode))").tag(menuMode)
+                        if values.menuMode != "0" && values.menuMode != "1" {
+                            Text("Current value (\(values.menuMode))").tag(values.menuMode)
                         }
                     }
-                    Toggle("Boot automatically", isOn: $automatic)
-                    if automatic {
-                        Stepper("Delay: \(delay) seconds", value: $delay, in: 0...Int.max)
+                    Toggle("Boot automatically", isOn: $values.automatic)
+                    if values.automatic {
+                        Stepper("Delay: \(values.delay) seconds", value: $values.delay, in: 0...Int.max)
                     } else {
                         Text("Wait for an image to be selected.").foregroundStyle(.secondary)
                     }
                     LabeledContent("Default image") {
                         VStack(alignment: .trailing, spacing: 6) {
-                            Text(image.isEmpty ? "First image" : image).lineLimit(2)
+                            Text(values.image.isEmpty ? "First image" : values.image).lineLimit(2)
                                 .textSelection(.enabled)
                             HStack {
-                                if !image.isEmpty { Button("Use First Image") { image = "" } }
+                                if !values.image.isEmpty { Button("Use First Image") { values.image = "" } }
                                 Button("Choose…", action: chooseImage)
                             }
                         }
@@ -64,7 +86,7 @@ struct BootMenuSheet: View {
                 if busy { ProgressView().controlSize(.small) }
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                    .disabled(busy)
+                    .disabled(saving)
                 Button("Save Changes", action: save)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -73,7 +95,7 @@ struct BootMenuSheet: View {
         }
         .padding(20)
         .frame(width: 500)
-        .interactiveDismissDisabled(changed || busy)
+        .interactiveDismissDisabled(changed || saving)
         .task { await load() }
     }
 
@@ -83,23 +105,17 @@ struct BootMenuSheet: View {
                 let volume = try DiskLister.dataVolume(for: disk)
                 return (volume, try ConfigurationSnapshot.load(root: volume.root))
             }.value
+            guard !Task.isCancelled else { return }
+            let parsed = try BootMenuValues(configuration: loaded.configuration)
             mount = volume
             snapshot = loaded
-            menuMode = loaded.configuration.value("VTOY_DEFAULT_MENU_MODE") ?? "0"
-            let timeout = loaded.configuration.value("VTOY_MENU_TIMEOUT")
-            if let timeout, Int(timeout) == nil || Int(timeout)! < 0 { throw ConfigurationError.invalidDocument }
-            automatic = timeout != nil
-            delay = timeout.flatMap(Int.init) ?? 10
-            image = loaded.configuration.value("VTOY_DEFAULT_IMAGE") ?? ""
-            initialMode = menuMode
-            initialAutomatic = automatic
-            initialDelay = delay
-            initialImage = image
+            values = parsed
+            initial = parsed
         } catch {
             snapshot = nil
             errorMessage = error.localizedDescription
         }
-        busy = false
+        loading = false
     }
 
     private func chooseImage() {
@@ -108,7 +124,7 @@ struct BootMenuSheet: View {
         panel.directoryURL = mount.root
         panel.canChooseDirectories = false
         panel.allowedContentTypes = ["iso", "wim", "img", "vhd", "vhdx", "efi", "vtoy"].compactMap { UTType(filenameExtension: $0) }
-        panel.begin { result in
+        let handle: (NSApplication.ModalResponse) -> Void = { result in
             guard result == .OK, let url = panel.url else { return }
             let root = mount.root.resolvingSymlinksInPath().path + "/"
             let path = url.resolvingSymlinksInPath().path
@@ -119,25 +135,30 @@ struct BootMenuSheet: View {
             let chosen = "/" + path.dropFirst(root.count)
             if let searchRoot = snapshot?.configuration.value("VTOY_DEFAULT_SEARCH_ROOT") {
                 let folder = searchRoot.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-                if !folder.isEmpty && !chosen.hasPrefix("/" + folder + "/") {
+                // Ventoy data partitions and grub path lookups are case-insensitive.
+                if !folder.isEmpty,
+                   chosen.range(of: "/" + folder + "/", options: [.anchored, .caseInsensitive]) == nil {
                     errorMessage = "Choose an image within this drive’s configured search folder (\(searchRoot))."
                     return
                 }
             }
-            image = chosen
+            values.image = chosen
             errorMessage = nil
+        }
+        if let window = NSApp.keyWindow {
+            panel.beginSheetModal(for: window, completionHandler: handle)
+        } else {
+            panel.begin(completionHandler: handle)
         }
     }
 
     private func save() {
         guard let snapshot, let mount else { return }
         var configuration = snapshot.configuration
-        if menuMode != initialMode { configuration.set("VTOY_DEFAULT_MENU_MODE", to: menuMode) }
-        if automatic != initialAutomatic || (automatic && delay != initialDelay) {
-            configuration.set("VTOY_MENU_TIMEOUT", to: automatic ? String(delay) : nil)
-        }
-        if image != initialImage { configuration.set("VTOY_DEFAULT_IMAGE", to: image.isEmpty ? nil : image) }
-        busy = true
+        if values.menuMode != initial.menuMode { configuration.set("VTOY_DEFAULT_MENU_MODE", to: values.menuMode) }
+        if values.timeout != initial.timeout { configuration.set("VTOY_MENU_TIMEOUT", to: values.timeout) }
+        if values.image != initial.image { configuration.set("VTOY_DEFAULT_IMAGE", to: values.image.isEmpty ? nil : values.image) }
+        saving = true
         errorMessage = nil
         Task {
             do {
@@ -147,7 +168,7 @@ struct BootMenuSheet: View {
                 }.value
                 dismiss()
             } catch { errorMessage = error.localizedDescription }
-            busy = false
+            saving = false
         }
     }
 }

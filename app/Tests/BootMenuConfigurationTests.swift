@@ -33,18 +33,35 @@ struct BootMenuConfigurationTests {
         }
         precondition(configuration.value("UNRECOGNIZED") == "keep")
 
+        // Ventoy honours only the first key of each control object, so edits must
+        // land in objects of their own rather than inside a multi-key object.
+        var split = try BootMenuConfiguration(data: advanced)
+        split.set("VTOY_DEFAULT_MENU_MODE", to: "1")
+        let controls = (try JSONSerialization.jsonObject(with: split.encoded()) as! [String: Any])["control"] as! [[String: String]]
+        precondition(controls.allSatisfy { $0.count == 1 }, "control objects must hold a single key")
+        precondition(controls.contains(["VTOY_MENU_TIMEOUT": "5"]) && controls.contains(["UNRECOGNIZED": "keep"]) && controls.contains(["VTOY_DEFAULT_MENU_MODE": "1"]))
+
         // A stale window cannot overwrite another save, even with valid JSON.
         do { try saved.save(enabled); preconditionFailure("accepted stale document") }
         catch ConfigurationError.changed { }
-        for invalid in ["[1,2]", "{", #"{"control":{"VTOY_MENU_TIMEOUT":"5"}}"#,
+        for invalid in ["", "[1,2]", "{", "{,}", #"{"control":{"VTOY_MENU_TIMEOUT":"5"}}"#,
                         #"{"control":[{"VTOY_MENU_TIMEOUT":"5"},{"VTOY_MENU_TIMEOUT":"6"}]}"#] {
             do { _ = try BootMenuConfiguration(data: Data(invalid.utf8)); preconditionFailure("accepted malformed controls") }
-            catch { }
+            catch ConfigurationError.invalidDocument { }
         }
-        let linked = root.appendingPathComponent("linked")
-        try FileManager.default.createSymbolicLink(at: linked, withDestinationURL: root)
-        do { _ = try ConfigurationSnapshot.load(root: linked); preconditionFailure("accepted symbolic link") }
+        // The ventoy folder and file on removable media must not be links.
+        let linkedRoot = root.appendingPathComponent("linked")
+        try FileManager.default.createDirectory(at: linkedRoot, withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: linkedRoot.appendingPathComponent("ventoy"),
+                                                   withDestinationURL: root.appendingPathComponent("ventoy"))
+        do { _ = try ConfigurationSnapshot.load(root: linkedRoot); preconditionFailure("accepted symbolic link") }
         catch ConfigurationError.linkedPath { }
-        print("BootMenuConfiguration: round trips, plugin preservation, conflicts, malformed data and symlinks passed")
+        try FileManager.default.removeItem(at: linkedRoot.appendingPathComponent("ventoy"))
+        try FileManager.default.createDirectory(at: linkedRoot.appendingPathComponent("ventoy"), withIntermediateDirectories: false)
+        try FileManager.default.createSymbolicLink(at: linkedRoot.appendingPathComponent("ventoy/ventoy.json"),
+                                                   withDestinationURL: root.appendingPathComponent("ventoy/ventoy.json"))
+        do { _ = try ConfigurationSnapshot.load(root: linkedRoot); preconditionFailure("accepted symbolic link") }
+        catch ConfigurationError.linkedPath { }
+        print("BootMenuConfiguration: round trips, plugin preservation, single-key controls, conflicts, malformed data and symlinks passed")
     }
 }
