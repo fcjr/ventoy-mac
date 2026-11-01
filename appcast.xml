@@ -30,6 +30,17 @@
     <description>Updates for Ventoy2Disk for macOS</description>
     <language>en</language>
     <item>
+      <title>0.1.3</title>
+      <sparkle:version>0.1.3</sparkle:version>
+      <sparkle:shortVersionString>0.1.3</sparkle:shortVersionString>
+      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+      <pubDate>Sun, 01 Nov 2026 15:46:44 +0000</pubDate>
+      <enclosure
+        url="https://github.com/fcjr/ventoy-mac/releases/download/v0.1.3/Ventoy2Disk-0.1.3.zip"
+        sparkle:edSignature="WCNe0msibqtJbRWnZFPHGgli3Z04zTYOEJ/cDZKO5dsVBq+S5fh5LCIuWucamGY1X/XFYLPdKh4aXRnBT4Q1AA==" length="1965892"
+        type="application/octet-stream"/>
+    </item>
+    <item>
       <title>0.1.2</title>
       <sparkle:version>0.1.2</sparkle:version>
       <sparkle:shortVersionString>0.1.2</sparkle:shortVersionString>
