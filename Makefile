@@ -1,4 +1,4 @@
-V2D_VERSION := 0.1.2
+V2D_VERSION := 0.1.3
 SIGN_IDENTITY := Developer ID Application: Left Shift Logical, LLC (KNBPD99JQM)
 BUNDLE_ID := com.leftshift.ventoy
 
@@ -113,9 +113,14 @@ dist: app
 clean:
 	rm -rf $(BUILD)
 
+test-config:
+	@mkdir -p $(BUILD)
+	swiftc app/Sources/BootMenuConfiguration.swift app/Tests/BootMenuConfigurationTests.swift -o $(BUILD)/test-config
+	$(BUILD)/test-config
+
 test-images:
 	@mkdir -p $(BUILD)
 	swiftc app/Sources/ImageLibrary.swift Tests/ImageTests.swift -o $(BUILD)/test-images
 	$(BUILD)/test-images
 
-.PHONY: all sign app dist clean test-images
+.PHONY: all sign app dist clean test-config test-images

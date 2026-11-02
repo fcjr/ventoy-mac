@@ -49,6 +49,7 @@ struct ContentView: View {
     @State private var selectedID: String?
     @State private var latest: String?
     @State private var showInstallSheet = false
+    @State private var bootMenuDisk: DiskInfo?
     @State private var showProgress = false
     @State private var imagesDisk: DiskInfo?
     @State private var actionTitle = "Install"
@@ -85,6 +86,9 @@ struct ContentView: View {
                     showProgress = true
                 }
             }
+        }
+        .sheet(item: $bootMenuDisk) { disk in
+            BootMenuSheet(disk: disk)
         }
         .sheet(isPresented: $showProgress) {
             ProgressSheet(runner: runner, disk: selected, actionTitle: actionTitle) {
@@ -135,6 +139,14 @@ struct ContentView: View {
             }
             .disabled(runner.running)
             .help("Rescan external disks (⌘R)")
+
+            Button {
+                bootMenuDisk = selected
+            } label: {
+                Label("Boot Menu…", systemImage: "list.bullet")
+            }
+            .disabled(runner.running || selected?.ventoyInstalled != true)
+            .help("Configure the boot menu on the selected drive")
 
             Button {
                 guard let d = selected else { return }
