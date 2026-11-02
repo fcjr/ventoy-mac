@@ -120,7 +120,7 @@ test-config:
 
 test-images:
 	@mkdir -p $(BUILD)
-	swiftc app/Sources/ImageLibrary.swift Tests/ImageTests.swift -o $(BUILD)/test-images
+	swiftc app/Sources/ImageLibrary.swift app/Tests/ImageTests.swift -o $(BUILD)/test-images
 	$(BUILD)/test-images
 
 .PHONY: all sign app dist clean test-config test-images

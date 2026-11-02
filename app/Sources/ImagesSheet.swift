@@ -1,18 +1,17 @@
 import SwiftUI
-import AppKit
 import UniformTypeIdentifiers
 
 struct ImagesSheet: View {
     let disk: DiskInfo
     @Environment(\.dismiss) private var dismiss
-    @State private var part: DataPartition?
-    @State private var resolveError: String?
-    @State private var files: [BootFile] = []
+    @State private var volume: DataVolume?
+    @State private var volumeError: String?
+    @State private var listing = ImageListing()
     @State private var listError: String?
     @State private var loading = true
-    @State private var prog: Double = 0
-    @State private var cur: String?
-    @State private var task: Task<Void,Never>?
+    @State private var progress = 0.0
+    @State private var current: String?
+    @State private var copyTask: Task<Void, Never>?
     @State private var copyErrors: [String] = []
 
     var body: some View {
@@ -21,65 +20,100 @@ struct ImagesSheet: View {
                 Image(systemName: "photo.on.rectangle.angled").font(.system(size: 28)).foregroundStyle(.secondary)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Images on “\(disk.mediaName)”").font(.headline)
-                    if let p = part { Text(p.mountPoint.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                    else if let e = resolveError { Text(e).font(.caption).foregroundStyle(.red) }
-                    else { Text("Resolving…").font(.caption).foregroundStyle(.secondary) }
-                }; Spacer()
+                    if let volume {
+                        Text(volume.root.path).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    } else if let volumeError {
+                        Text(volumeError).font(.caption).foregroundStyle(.red)
+                    } else {
+                        Text("Resolving…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
             }
-            if loading { ProgressView().controlSize(.small) }
-            else {
-                List { ForEach(files) { f in HStack { Text(f.relativePath).lineLimit(1); Spacer(); Text(ByteCountFormatter.string(fromByteCount: Int64(f.size), countStyle: .file)).font(.caption).foregroundStyle(.secondary) } } }
+            if loading {
+                ProgressView().controlSize(.small)
+            } else {
+                List(listing.files) { file in
+                    HStack {
+                        Text(file.relativePath).lineLimit(1)
+                        Spacer()
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(file.size), countStyle: .file))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
                 .frame(height: 220)
-                .overlay { if files.isEmpty && listError == nil && resolveError == nil { Text("No boot images found").foregroundStyle(.secondary) } }
-                if let e = listError { Text(e).font(.caption).foregroundStyle(.red) }
-                if task != nil {
+                .overlay {
+                    if listing.files.isEmpty && listError == nil && volumeError == nil {
+                        Text("No boot images found").foregroundStyle(.secondary)
+                    }
+                }
+                if let listError { Text(listError).font(.caption).foregroundStyle(.red) }
+                if listing.unreadable > 0 {
+                    Text("\(listing.unreadable) item(s) on this drive could not be read and are not shown.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if copyTask != nil {
                     VStack(alignment: .leading, spacing: 4) {
-                        ProgressView(value: prog).progressViewStyle(.linear)
-                        if let c = cur { Text(c).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                        ProgressView(value: progress).progressViewStyle(.linear)
+                        if let current { Text(current).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                     }
                 }
                 if !copyErrors.isEmpty {
-                    VStack(alignment: .leading, spacing: 2) { ForEach(copyErrors, id: \.self) { Text($0).font(.caption).foregroundStyle(.red) } }
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(copyErrors, id: \.self) { Text($0).font(.caption).foregroundStyle(.red) }
+                    }
                     .frame(maxHeight: 60)
                 }
             }
             HStack {
-                Button("Add Images…") { pick() }.disabled(part == nil || task != nil)
-                if let t = task { Button("Cancel") { t.cancel() } }
+                Button("Add Images…", action: pick).disabled(volume == nil || copyTask != nil)
+                if let copyTask { Button("Cancel") { copyTask.cancel() } }
                 Spacer()
-                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction).disabled(task != nil)
+                Button("Close") { dismiss() }.keyboardShortcut(.cancelAction).disabled(copyTask != nil)
             }
         }
-        .padding(20).frame(width: 560)
-        .interactiveDismissDisabled(task != nil)
-        .onAppear { reload() }
-        .onDisappear { task?.cancel() }
+        .padding(20)
+        .frame(width: 560)
+        .interactiveDismissDisabled(copyTask != nil)
+        .task { await reload() }
+        .onDisappear { copyTask?.cancel() }
     }
 
-    private func reload() {
-        loading = true; part = nil; resolveError = nil; listError = nil
-        let id = disk.id
-        Task.detached {
-            do {
-                let p = try DataPartitionResolver.resolve(diskID: id)
-                let list = try ImageEnumerator.list(root: p.mountPoint)
-                await MainActor.run { self.part = p; self.files = list; self.loading = false }
-            } catch {
-                let msg = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                await MainActor.run {
-                    self.resolveError = msg
-                    self.loading = false
-                }
-            }
+    private func reload() async {
+        loading = true
+        volumeError = nil
+        listError = nil
+        let resolved: DataVolume
+        do {
+            resolved = try await Task.detached { try DiskLister.dataVolume(for: disk) }.value
+        } catch {
+            volumeError = error.localizedDescription
+            loading = false
+            return
+        }
+        volume = resolved
+        await refreshList(root: resolved.root, sweep: true)
+        loading = false
+    }
+
+    private func refreshList(root: URL, sweep: Bool = false) async {
+        do {
+            listing = try await Task.detached {
+                if sweep { ImageCopier.removeStaleTemporaryFiles(in: root) }
+                return try ImageEnumerator.list(root: root)
+            }.value
+            listError = nil
+        } catch {
+            listError = "The drive’s contents could not be listed. " + error.localizedDescription
         }
     }
 
     private func pick() {
         let panel = NSOpenPanel()
-        panel.canChooseFiles = true; panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
-        let exts = ["iso","wim","img","vhd","vhdx","efi","vtoy"]
-        panel.allowedContentTypes = exts.compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = ImageEnumerator.allowed.sorted().compactMap { UTType(filenameExtension: $0) }
         panel.allowsOtherFileTypes = false
         let completion: (NSApplication.ModalResponse) -> Void = { response in
             guard response == .OK, !panel.urls.isEmpty else { return }
@@ -93,41 +127,35 @@ struct ImagesSheet: View {
     }
 
     private func startCopy(_ urls: [URL]) {
-        copyErrors = []; prog = 0; cur = urls.first?.lastPathComponent
-        guard let p = part else { return }
-        let pinned = p
-        task = Task {
-            do {
-                let copyTask = Task.detached(priority: .userInitiated) {
-                    try await ImageCopier.copy(sources: urls, partition: pinned) { v, n in
-                        Task { @MainActor in self.prog = min(v, 1); self.cur = v >= 1 ? "Finishing writes…" : n }
+        guard let volume else { return }
+        copyErrors = []
+        progress = 0
+        current = urls.first?.lastPathComponent
+        let disk = disk
+        copyTask = Task {
+            let work = Task.detached(priority: .userInitiated) {
+                try await ImageCopier.copy(sources: urls, to: volume.root, validate: {
+                    guard try DiskLister.dataVolume(for: disk) == volume else { throw ConfigurationError.disconnected }
+                }) { fraction, name in
+                    // The main queue is FIFO, so updates cannot arrive out of order.
+                    DispatchQueue.main.async {
+                        progress = fraction
+                        current = fraction >= 1 ? "Finishing writes…" : name
                     }
                 }
-                let res = try await withTaskCancellationHandler {
-                    try await copyTask.value
-                } onCancel: { copyTask.cancel() }
-                await MainActor.run {
-                    if !res.failed.isEmpty { self.copyErrors = res.failed.map { "\($0.0): \($0.1)" } }
-                    else if !res.succeeded.isEmpty { self.copyErrors = [] }
-                    self.prog = 0
-                }
-                await refreshList(root: pinned.mountPoint)
-            } catch is CancellationError {
-                await MainActor.run { self.copyErrors.append("Canceled – partial copy removed"); self.prog = 0 }
-                await refreshList(root: pinned.mountPoint)
-            } catch {
-                await MainActor.run { self.copyErrors.append(error.localizedDescription) }
             }
-            await MainActor.run { self.task = nil; self.cur = nil }
-        }
-    }
-
-    private func refreshList(root: URL) async {
-        do {
-            let r = try await Task.detached { try ImageEnumerator.list(root: root) }.value
-            await MainActor.run { self.files = r; self.listError = nil }
-        } catch {
-            await MainActor.run { self.listError = error.localizedDescription }
+            do {
+                let result = try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
+                copyErrors = result.failed.map { "\($0.name): \($0.message)" }
+            } catch is CancellationError {
+                copyErrors = ["Canceled. The partial copy was removed."]
+            } catch {
+                copyErrors = [error.localizedDescription]
+            }
+            await refreshList(root: volume.root)
+            progress = 0
+            current = nil
+            copyTask = nil
         }
     }
 }

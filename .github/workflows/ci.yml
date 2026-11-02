@@ -17,6 +17,9 @@ jobs:
       - name: Test configuration editing
         run: make test-config
 
+      - name: Test image library
+        run: make test-images
+
       # No signing identity on CI; the app builds and stays unsigned.
       - name: Build app
         run: make app
